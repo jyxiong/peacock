@@ -1,0 +1,6 @@
+.idea
+.vscode
+
+build
+bin*
+downloaded_reasources
