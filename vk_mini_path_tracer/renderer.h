@@ -26,7 +26,7 @@ private:
   nvvk::RaytracingBuilderKHR m_raytracingBuilder;
   nvvk::DescriptorSetContainer m_descriptorSetContainer;
 
-  std::vector<ObjModel> m_objModels;
+  ObjModel m_objModel;
   std::vector<nvvk::RaytracingBuilderKHR::BlasInput> m_blases;
   std::vector<VkAccelerationStructureInstanceKHR> m_instances;
 

@@ -99,11 +99,9 @@ Renderer::~Renderer()
   vkDestroyCommandPool(m_context, m_cmdPool, nullptr);
   m_raytracingBuilder.destroy();
 
-  for (auto& objModel : m_objModels)
-  {
-    m_allocator.destroy(objModel.vertexBuffer);
-    m_allocator.destroy(objModel.indexBuffer);
-  }
+
+  m_allocator.destroy(m_objModel.vertexBuffer);
+  m_allocator.destroy(m_objModel.indexBuffer);
   m_allocator.destroy(m_buffer);
   m_allocator.deinit();
 
@@ -142,56 +140,49 @@ void Renderer::loadModel(const std::string& filename, const std::vector<std::str
     objIndices.push_back(index.vertex_index);
   }
 
-  ObjModel objModel;
-
   // start a cmd to upload data to the GPU
   auto uploadCmdBuffer = AllocateAndBeginOneTimeCommandBuffer(m_context, m_cmdPool);
   // upload data to GPU
   const VkBufferUsageFlags usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                     | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
-  objModel.vertexBuffer = m_allocator.createBuffer(uploadCmdBuffer, objVertices, usage);
-  objModel.indexBuffer = m_allocator.createBuffer(uploadCmdBuffer, objIndices, usage);
-  objModel.numIndices = static_cast<uint32_t>(objIndices.size());
-  objModel.numVertices = static_cast<uint32_t>(objVertices.size());
+  m_objModel.vertexBuffer = m_allocator.createBuffer(uploadCmdBuffer, objVertices, usage);
+  m_objModel.indexBuffer = m_allocator.createBuffer(uploadCmdBuffer, objIndices, usage);
+  m_objModel.numIndices = static_cast<uint32_t>(objIndices.size());
+  m_objModel.numVertices = static_cast<uint32_t>(objVertices.size());
   // submit, wait, and free cmd
   EndSubmitWaitAndFreeCommandBuffer(m_context, m_context.m_queueGCT, m_cmdPool, uploadCmdBuffer);
   // finalize and release staging resources
   m_allocator.finalizeAndReleaseStaging();
-
-  m_objModels.emplace_back(objModel);
 }
 
 void Renderer::createBottomLevelAS()
 {
-  for (const auto& objModel : m_objModels)
-  {
-    nvvk::RaytracingBuilderKHR::BlasInput blas;
+  nvvk::RaytracingBuilderKHR::BlasInput blas;
 
-    auto triangles = nvvk::make<VkAccelerationStructureGeometryTrianglesDataKHR>();
-    triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-    triangles.vertexData.deviceAddress = GetBufferDeviceAddress(m_context, objModel.vertexBuffer.buffer);
-    triangles.vertexStride = sizeof(float) * 3;
-    triangles.maxVertex = static_cast<uint32_t>(objModel.numVertices / 3);
-    triangles.indexType = VK_INDEX_TYPE_UINT32;
-    triangles.indexData.deviceAddress = GetBufferDeviceAddress(m_context, objModel.indexBuffer.buffer);
-    triangles.transformData.deviceAddress = 0;  // No transform
+  auto triangles = nvvk::make<VkAccelerationStructureGeometryTrianglesDataKHR>();
+  triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+  triangles.vertexData.deviceAddress = GetBufferDeviceAddress(m_context, m_objModel.vertexBuffer.buffer);
+  triangles.vertexStride = sizeof(float) * 3;
+  triangles.maxVertex = static_cast<uint32_t>(m_objModel.numVertices / 3);
+  triangles.indexType = VK_INDEX_TYPE_UINT32;
+  triangles.indexData.deviceAddress = GetBufferDeviceAddress(m_context, m_objModel.indexBuffer.buffer);
+  triangles.transformData.deviceAddress = 0;  // No transform
 
-    auto geometry = nvvk::make<VkAccelerationStructureGeometryKHR>();
-    geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-    geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-    geometry.geometry.triangles = triangles;
-    blas.asGeometry.emplace_back(geometry);
+  auto geometry = nvvk::make<VkAccelerationStructureGeometryKHR>();
+  geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+  geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+  geometry.geometry.triangles = triangles;
+  blas.asGeometry.emplace_back(geometry);
 
-    VkAccelerationStructureBuildRangeInfoKHR offsetInfo;
-    offsetInfo.primitiveCount = static_cast<uint32_t>(objModel.numIndices / 3);
-    offsetInfo.primitiveOffset = 0;
-    offsetInfo.firstVertex = 0;
-    offsetInfo.transformOffset = 0;
-    blas.asBuildOffsetInfo.emplace_back(offsetInfo);
+  VkAccelerationStructureBuildRangeInfoKHR offsetInfo;
+  offsetInfo.primitiveCount = static_cast<uint32_t>(m_objModel.numIndices / 3);
+  offsetInfo.primitiveOffset = 0;
+  offsetInfo.firstVertex = 0;
+  offsetInfo.transformOffset = 0;
+  blas.asBuildOffsetInfo.emplace_back(offsetInfo);
 
-    m_blases.emplace_back(blas);
-  }
-
+  m_blases.emplace_back(blas);
+  
   m_raytracingBuilder.buildBlas(m_blases, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
 }
 
@@ -232,6 +223,9 @@ void Renderer::createComputePipeline()
   // list binding
   m_descriptorSetContainer.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
   m_descriptorSetContainer.addBinding(1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+  m_descriptorSetContainer.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+  m_descriptorSetContainer.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+
   // create descriptor set layout
   m_descriptorSetContainer.initLayout();
 
@@ -251,19 +245,29 @@ void Renderer::createComputePipeline()
 
 void Renderer::updateDescriptorSet()
 {
-  std::vector<VkWriteDescriptorSet> writeDescriptorSets(2);
+  std::vector<VkWriteDescriptorSet> writeDescriptorSets(4);
 
   VkDescriptorBufferInfo descriptorBufferInfo{};
   descriptorBufferInfo.buffer = m_buffer.buffer;
   descriptorBufferInfo.range = render_width * render_height * 3 * sizeof(float);
-  writeDescriptorSets[0] = m_descriptorSetContainer.makeWrite(0 /*set index*/, 0 /*binding point*/, &descriptorBufferInfo);
+  writeDescriptorSets[0] = m_descriptorSetContainer.makeWrite(0, 0, &descriptorBufferInfo);
   
   auto descriptorAS = nvvk::make<VkWriteDescriptorSetAccelerationStructureKHR>();
   auto tlasCopy = m_raytracingBuilder.getAccelerationStructure();
   descriptorAS.accelerationStructureCount = 1;
   descriptorAS.pAccelerationStructures = &tlasCopy;
-  writeDescriptorSets[1] = m_descriptorSetContainer.makeWrite(0 /*set index*/, 1 /*binding point*/, &descriptorAS);
+  writeDescriptorSets[1] = m_descriptorSetContainer.makeWrite(0, 1, &descriptorAS);
   
+  VkDescriptorBufferInfo vertexDescriptorBufferInfo{};
+  vertexDescriptorBufferInfo.buffer = m_objModel.vertexBuffer.buffer;
+  vertexDescriptorBufferInfo.range = VK_WHOLE_SIZE;
+  writeDescriptorSets[2] = m_descriptorSetContainer.makeWrite(0, 2, &vertexDescriptorBufferInfo);
+
+  VkDescriptorBufferInfo indexDescriptorBufferInfo{};
+  indexDescriptorBufferInfo.buffer = m_objModel.indexBuffer.buffer;
+  indexDescriptorBufferInfo.range = VK_WHOLE_SIZE;
+  writeDescriptorSets[3] = m_descriptorSetContainer.makeWrite(0, 3, &indexDescriptorBufferInfo);
+
   // update descriptor set
   vkUpdateDescriptorSets(m_context, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 }
@@ -296,6 +300,7 @@ void Renderer::rayTrace()
 void Renderer::saveImage(const std::string& fileName)
 {
   void* data = m_allocator.map(m_buffer);
+  stbi_flip_vertically_on_write(1);
   stbi_write_hdr(fileName.c_str(), render_width, render_height, 3, reinterpret_cast<float*>(data));
   m_allocator.unmap(m_buffer);
 }
