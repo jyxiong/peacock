@@ -74,6 +74,9 @@ Renderer::Renderer() {
   // create vulkan context
   m_context.init(deviceInfo);
 
+  // debug util
+  m_debugUtil.setup(m_context);
+
   // create resource allocator
   m_allocator.init(m_context, m_context.m_physicalDevice);
 
@@ -81,7 +84,8 @@ Renderer::Renderer() {
   auto cmdPoolInfo = nvvk::make<VkCommandPoolCreateInfo>();
   cmdPoolInfo.queueFamilyIndex = m_context.m_queueGCT;
   NVVK_CHECK(vkCreateCommandPool(m_context, &cmdPoolInfo, nullptr, &m_cmdPool));
-
+  m_debugUtil.setObjectName(m_cmdPool, "cmdPool");
+  
   // create ray tracing builder
   m_raytracingBuilder.setup(m_context, &m_allocator, m_context.m_queueGCT);
 
@@ -119,6 +123,7 @@ void Renderer::createImage() {
   imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   m_image = m_allocator.createImage(imageCreateInfo);
+  m_debugUtil.setObjectName(m_image.image, "image");
 
   auto imageViewCreateInfo = nvvk::make<VkImageViewCreateInfo>();
   imageViewCreateInfo.image = m_image.image;
@@ -130,12 +135,14 @@ void Renderer::createImage() {
   imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
   imageViewCreateInfo.subresourceRange.levelCount = 1;
   NVVK_CHECK(vkCreateImageView(m_context, &imageViewCreateInfo, nullptr, &m_imageView));
+  m_debugUtil.setObjectName(m_imageView, "imageView");
 
   imageCreateInfo.tiling = VK_IMAGE_TILING_LINEAR;
   imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   m_linearImage = m_allocator.createImage(imageCreateInfo, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
       | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
       | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+  m_debugUtil.setObjectName(m_linearImage.image, "imageLinear");
 }
 
 void Renderer::loadModel(const std::string &filename, const std::vector<std::string> &searchPaths) {
@@ -182,7 +189,7 @@ void Renderer::loadModel(const std::string &filename, const std::vector<std::str
                                                   srcAccess,
                                                   dstImageLinearAccess,
                                                   VK_IMAGE_LAYOUT_UNDEFINED,
-                                                  VK_IMAGE_LAYOUT_GENERAL,
+                                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                                   VK_IMAGE_ASPECT_COLOR_BIT);
   vkCmdPipelineBarrier(uploadCmdBuffer,
                         srcStages,
@@ -255,6 +262,7 @@ void Renderer::loadShader(const std::string &filename, const std::vector<std::st
   // create raytrace module
   m_raytraceModule =
       nvvk::createShaderModule(m_context, nvh::loadFile("shaders/raytrace.comp.glsl.spv", true, searchPaths, true));
+  m_debugUtil.setObjectName(m_raytraceModule, "rayTraceModule");
 }
 
 void Renderer::createComputePipeline() {
@@ -308,6 +316,7 @@ void Renderer::createComputePipeline() {
                                       &pipelineCreateInfo,
                                       VK_NULL_HANDLE,
                                       &m_computePipeline));
+  m_debugUtil.setObjectName(m_computePipeline, "computePipeline");                                      
 }
 
 void Renderer::updateDescriptorSet() {

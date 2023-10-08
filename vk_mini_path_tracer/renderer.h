@@ -38,6 +38,8 @@ private:
   VkImageView m_imageView;
   nvvk::Image m_linearImage;
 
+  nvvk::DebugUtil m_debugUtil;
+
 public:
   Renderer();
 
