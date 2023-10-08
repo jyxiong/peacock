@@ -1,22 +1,24 @@
 #version 460 
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_ray_query : require
+#extension GL_GOOGLE_include_directive : require
+#include "../common.h"
 
-layout(local_size_x = 16, local_size_y = 8, local_size_z = 1) in;
+layout(local_size_x = WORKGROUP_WIDTH, local_size_y = WORKGROUP_HEIGHT, local_size_z = 1) in;
 
-layout(binding = 0, set = 0, scalar) buffer storageBuffer
+layout(binding = BINDING_IMAGEDATA, set = 0, scalar) buffer storageBuffer
 {
   vec3 imageData[];
 };
 
-layout(binding = 1, set = 0) uniform accelerationStructureEXT tlas;
+layout(binding = BINDING_TLAS, set = 0) uniform accelerationStructureEXT tlas;
 
-layout(binding = 2, set = 0, scalar) buffer Vertices
+layout(binding = BINDING_VERTICES, set = 0, scalar) buffer Vertices
 {
   vec3 vertices[];
 };
 
-layout(binding = 3, set = 0, scalar) buffer Indices
+layout(binding = BINDING_INDICES, set = 0, scalar) buffer Indices
 {
   uint indices[];
 };
@@ -97,7 +99,7 @@ HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
 
 void main()
 {
-  const uvec2 resolution = uvec2(800, 600);
+  const uvec2 resolution = uvec2(RENDER_WIDTH, RENDER_HEIGHT);
 
   const uvec2 pixel = gl_GlobalInvocationID.xy;
 

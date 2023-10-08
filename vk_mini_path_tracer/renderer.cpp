@@ -1,16 +1,11 @@
 #include "renderer.h"
+#include "common.h"
 
 #include <array>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
-
-static const uint64_t render_width  = 800;
-static const uint64_t render_height = 600;
-
-static const uint32_t workgroup_width  = 16;
-static const uint32_t workgroup_height = 8;
 
 VkCommandBuffer AllocateAndBeginOneTimeCommandBuffer(VkDevice device, VkCommandPool commandPool)
 {
@@ -112,7 +107,7 @@ void Renderer::createBuffer()
 {
     // create a framebuffer
     auto bufferCreateInfo = nvvk::make<VkBufferCreateInfo>();
-    bufferCreateInfo.size = render_width * render_height * 3 * sizeof(float);
+    bufferCreateInfo.size = RENDER_WIDTH * RENDER_HEIGHT * 3 * sizeof(float);
     bufferCreateInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     // HOST_VISIBLE means that the CPU can read this buffer's memory.
     // HOST_CACHED means that the CPU caches this memory.
@@ -183,7 +178,8 @@ void Renderer::createBottomLevelAS()
 
   m_blases.emplace_back(blas);
   
-  m_raytracingBuilder.buildBlas(m_blases, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
+  m_raytracingBuilder.buildBlas(m_blases, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR
+                                          | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR);
 }
 
 void Renderer::createTopLevelAS()
@@ -221,10 +217,10 @@ void Renderer::createComputePipeline()
   shaderStageCreateInfo.pName = "main";
 
   // list binding
-  m_descriptorSetContainer.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-  m_descriptorSetContainer.addBinding(1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-  m_descriptorSetContainer.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
-  m_descriptorSetContainer.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+  m_descriptorSetContainer.addBinding(BINDING_IMAGEDATA, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+  m_descriptorSetContainer.addBinding(BINDING_TLAS, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+  m_descriptorSetContainer.addBinding(BINDING_VERTICES, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
+  m_descriptorSetContainer.addBinding(BINDING_INDICES, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT);
 
   // create descriptor set layout
   m_descriptorSetContainer.initLayout();
@@ -249,7 +245,7 @@ void Renderer::updateDescriptorSet()
 
   VkDescriptorBufferInfo descriptorBufferInfo{};
   descriptorBufferInfo.buffer = m_buffer.buffer;
-  descriptorBufferInfo.range = render_width * render_height * 3 * sizeof(float);
+  descriptorBufferInfo.range = RENDER_WIDTH * RENDER_HEIGHT * 3 * sizeof(float);
   writeDescriptorSets[0] = m_descriptorSetContainer.makeWrite(0, 0, &descriptorBufferInfo);
   
   auto descriptorAS = nvvk::make<VkWriteDescriptorSetAccelerationStructureKHR>();
@@ -285,7 +281,7 @@ void Renderer::rayTrace()
   vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptorSetContainer.getPipeLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
   // run compute shader
-  vkCmdDispatch(cmdBuffer, render_width / workgroup_width, render_height / workgroup_height, 1);
+  vkCmdDispatch(cmdBuffer, RENDER_WIDTH / WORKGROUP_WIDTH, RENDER_HEIGHT / WORKGROUP_HEIGHT, 1);
 
   // memory barrier
   auto memoryBarrier = nvvk::make<VkMemoryBarrier>();
@@ -301,6 +297,6 @@ void Renderer::saveImage(const std::string& fileName)
 {
   void* data = m_allocator.map(m_buffer);
   stbi_flip_vertically_on_write(1);
-  stbi_write_hdr(fileName.c_str(), render_width, render_height, 3, reinterpret_cast<float*>(data));
+  stbi_write_hdr(fileName.c_str(), RENDER_WIDTH, RENDER_HEIGHT, 3, reinterpret_cast<float*>(data));
   m_allocator.unmap(m_buffer);
 }
