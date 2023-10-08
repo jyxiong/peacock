@@ -88,11 +88,15 @@ HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
   vec3 barycentrics = vec3(0.0, rayQueryGetIntersectionBarycentricsEXT(rayQuery, true));
   barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
 
-  // Compute the world position of the intersection
-  result.worldPosition = barycentrics.x * v0 + barycentrics.y * v1 + barycentrics.z * v2;
+  // Compute the intersection in object space
+  const vec3 objectPos = barycentrics.x * v0 + barycentrics.y * v1 + barycentrics.z * v2;
+  const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
+  result.worldPosition = objectToWorld * vec4(objectPos, 1.0);
   
   // Compute the normal of the triangle in object space
-  result.worldNormal = normalize(cross(v1 - v0, v2 - v0));
+  const vec3 objectNormal = normalize(cross(v1 - v0, v2 - v0));
+  const mat4x3 objectToWorldInverse = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true);
+  result.worldNormal = normalize((objectNormal * objectToWorldInverse).xyz);
 
   result.color = vec3(0.7);
 
@@ -113,7 +117,7 @@ void main()
   // State of the random number generator.
   uint rngState = resolution.x * (pushConstants.sample_batch * resolution.y + pixel.y) + pixel.x;  // Initial seed
 
-  const vec3 cameraPosition = vec3(-0.001, 1.0, 6.0);
+  const vec3 cameraPosition = vec3(-0.001, 1.0, 53.0);
   const float fovVerticalSlope = 1.0 / 5.0;
   const float aspectRatio = float(resolution.x) / float(resolution.y);
 

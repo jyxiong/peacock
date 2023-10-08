@@ -2,6 +2,7 @@
 #include "common.h"
 
 #include <array>
+#include <random>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -241,18 +242,31 @@ void Renderer::createBottomLevelAS() {
 }
 
 void Renderer::createTopLevelAS() {
-  for (size_t i = 0; i < m_blases.size(); i++) {
-    VkAccelerationStructureInstanceKHR instance{};
-    instance.accelerationStructureReference = m_raytracingBuilder.getBlasDeviceAddress(static_cast<uint32_t>(i));
-    instance.transform.matrix[0][0] = 1.f;
-    instance.transform.matrix[1][1] = 1.f;
-    instance.transform.matrix[2][2] = 1.f;
-    instance.instanceCustomIndex = 0;
-    instance.mask = 0xFF;
-    instance.instanceShaderBindingTableRecordOffset = 0;
-    instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
 
-    m_instances.emplace_back(instance);
+  std::default_random_engine randomEngine;  // The random number generator
+  std::uniform_real_distribution<float> uniformDist(-0.5f, 0.5f);
+
+  for(int x = -10; x <= 10; x++)
+  {
+    for(int y = -10; y <= 10; y++)
+    {
+      nvmath::mat4f transform(1);
+      transform.translate(nvmath::vec3f(float(x), float(y), 0.0f));
+      transform.scale(1.0f / 2.7f);
+      transform.rotate(uniformDist(randomEngine), nvmath::vec3f(0.0f, 1.0f, 0.0f));
+      transform.rotate(uniformDist(randomEngine), nvmath::vec3f(1.0f, 0.0f, 0.0f));
+      transform.translate(nvmath::vec3f(0.0f, -1.0f, 0.0f));
+
+      VkAccelerationStructureInstanceKHR instance{};
+      instance.accelerationStructureReference = m_raytracingBuilder.getBlasDeviceAddress(0);
+      instance.transform = nvvk::toTransformMatrixKHR(transform);
+      instance.instanceCustomIndex = 0;
+      instance.mask = 0xFF;
+      instance.instanceShaderBindingTableRecordOffset = 0;
+      instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+
+      m_instances.emplace_back(instance);
+    }
   }
 
   m_raytracingBuilder.buildTlas(m_instances, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
