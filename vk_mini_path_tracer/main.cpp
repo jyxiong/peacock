@@ -7,7 +7,7 @@ int main(int argc, const char** argv)
 
   Renderer renderer;
 
-  renderer.createBuffer();
+  renderer.createImage();
 
   renderer.loadModel("scenes/CornellBox-Original-Merged.obj", searchPaths);
   renderer.createBottomLevelAS();

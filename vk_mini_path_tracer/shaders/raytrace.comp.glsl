@@ -6,10 +6,7 @@
 
 layout(local_size_x = WORKGROUP_WIDTH, local_size_y = WORKGROUP_HEIGHT, local_size_z = 1) in;
 
-layout(binding = BINDING_IMAGEDATA, set = 0, scalar) buffer storageBuffer
-{
-  vec3 imageData[];
-};
+layout(binding = BINDING_IMAGEDATA, set = 0, rgba32f) uniform image2D storageImage;
 
 layout(binding = BINDING_TLAS, set = 0) uniform accelerationStructureEXT tlas;
 
@@ -104,9 +101,9 @@ HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
 
 void main()
 {
-  const uvec2 resolution = uvec2(pushConstants.render_width, pushConstants.render_height);
+  const ivec2 resolution = imageSize(storageImage);
 
-  const uvec2 pixel = gl_GlobalInvocationID.xy;
+  const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
 
   if (pixel.x >= resolution.x || pixel.y >= resolution.y)
   {
@@ -181,10 +178,12 @@ void main()
   }
 
   uint index = resolution.x * pixel.y + pixel.x;
-  vec3 averageColor = summedPixelColor / float(NUM_SAMPLES);
+  vec3 averagePixelColor = summedPixelColor / float(NUM_SAMPLES);
   if (pushConstants.sample_batch != 0)
   {
-    averageColor = (imageData[index] * float(pushConstants.sample_batch) + averageColor) / float(pushConstants.sample_batch + 1);
+    const vec3 previousAverageColor = imageLoad(storageImage, pixel).rgb;
+
+    averagePixelColor = (previousAverageColor * pushConstants.sample_batch + averagePixelColor) / (pushConstants.sample_batch + 1);
   }
-  imageData[index] = averageColor;
+  imageStore(storageImage, pixel, vec4(averagePixelColor, 0.0));
 }

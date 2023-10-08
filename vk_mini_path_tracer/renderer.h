@@ -8,6 +8,7 @@
 #include <nvvk/shaders_vk.hpp>
 #include <nvvk/descriptorsets_vk.hpp>
 #include <nvvk/raytraceKHR_vk.hpp>
+#include <nvvk/images_vk.hpp>
 
 struct ObjModel
 {
@@ -33,15 +34,16 @@ private:
   VkShaderModule m_raytraceModule;
   VkPipeline m_computePipeline;
 
-  nvvk::Buffer m_buffer;
+  nvvk::Image m_image;
+  VkImageView m_imageView;
+  nvvk::Image m_linearImage;
 
 public:
   Renderer();
 
   ~Renderer();
 
-  // buffer of result
-  void createBuffer();
+  void createImage();
 
   void loadModel(const std::string& filename, const std::vector<std::string>& searchPaths);
   void createBottomLevelAS();

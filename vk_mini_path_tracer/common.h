@@ -8,8 +8,6 @@ using uint = uint32_t;
 
 struct PushConstants
 {
-  uint render_width;
-  uint render_height;
   uint sample_batch;
 };
 
