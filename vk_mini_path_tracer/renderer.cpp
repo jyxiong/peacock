@@ -7,6 +7,8 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
+PushConstants pushConstants{1024 /* render_width */, 600 /* render_height */};
+
 VkCommandBuffer AllocateAndBeginOneTimeCommandBuffer(VkDevice device, VkCommandPool commandPool)
 {
   // allocate info
@@ -107,7 +109,7 @@ void Renderer::createBuffer()
 {
     // create a framebuffer
     auto bufferCreateInfo = nvvk::make<VkBufferCreateInfo>();
-    bufferCreateInfo.size = RENDER_WIDTH * RENDER_HEIGHT * 3 * sizeof(float);
+    bufferCreateInfo.size = pushConstants.render_width * pushConstants.render_height * 3 * sizeof(float);
     bufferCreateInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     // HOST_VISIBLE means that the CPU can read this buffer's memory.
     // HOST_CACHED means that the CPU caches this memory.
@@ -229,7 +231,13 @@ void Renderer::createComputePipeline()
   m_descriptorSetContainer.initPool(1);
 
   // create pipeline layout from descriptor set layout
-  m_descriptorSetContainer.initPipeLayout();
+  static_assert(sizeof(PushConstants) % 4 == 0, "Push constant size must be a multiple of 4 per the Vulkan spec!");
+  VkPushConstantRange pushConstantRange;
+  pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  pushConstantRange.offset = 0;
+  pushConstantRange.size = sizeof(PushConstants);
+
+  m_descriptorSetContainer.initPipeLayout(1, &pushConstantRange);
 
   // create pipeline
   auto pipelineCreateInfo = nvvk::make<VkComputePipelineCreateInfo>();
@@ -245,7 +253,7 @@ void Renderer::updateDescriptorSet()
 
   VkDescriptorBufferInfo descriptorBufferInfo{};
   descriptorBufferInfo.buffer = m_buffer.buffer;
-  descriptorBufferInfo.range = RENDER_WIDTH * RENDER_HEIGHT * 3 * sizeof(float);
+  descriptorBufferInfo.range = pushConstants.render_width * pushConstants.render_height * 3 * sizeof(float);
   writeDescriptorSets[0] = m_descriptorSetContainer.makeWrite(0, 0, &descriptorBufferInfo);
   
   auto descriptorAS = nvvk::make<VkWriteDescriptorSetAccelerationStructureKHR>();
@@ -280,8 +288,11 @@ void Renderer::rayTrace()
   auto descriptorSet = m_descriptorSetContainer.getSet(0);
   vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptorSetContainer.getPipeLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
+  // push constants
+  vkCmdPushConstants(cmdBuffer, m_descriptorSetContainer.getPipeLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &pushConstants);
+
   // run compute shader
-  vkCmdDispatch(cmdBuffer, RENDER_WIDTH / WORKGROUP_WIDTH, RENDER_HEIGHT / WORKGROUP_HEIGHT, 1);
+  vkCmdDispatch(cmdBuffer, (pushConstants.render_width - 1) / WORKGROUP_WIDTH + 1, (pushConstants.render_height - 1) / WORKGROUP_HEIGHT + 1, 1);
 
   // memory barrier
   auto memoryBarrier = nvvk::make<VkMemoryBarrier>();
@@ -297,6 +308,6 @@ void Renderer::saveImage(const std::string& fileName)
 {
   void* data = m_allocator.map(m_buffer);
   stbi_flip_vertically_on_write(1);
-  stbi_write_hdr(fileName.c_str(), RENDER_WIDTH, RENDER_HEIGHT, 3, reinterpret_cast<float*>(data));
+  stbi_write_hdr(fileName.c_str(), pushConstants.render_width, pushConstants.render_height, 3, reinterpret_cast<float*>(data));
   m_allocator.unmap(m_buffer);
 }

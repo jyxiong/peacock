@@ -23,6 +23,11 @@ layout(binding = BINDING_INDICES, set = 0, scalar) buffer Indices
   uint indices[];
 };
 
+layout(push_constant) uniform PushConsts
+{
+  PushConstants pushConstants;
+};
+
 float stepAndOutputRNGFloat(inout uint rngState)
 {
   // Condensed version of pcg_output_rxs_m_xs_32_32, with simple conversion to floating-point [0,1].
@@ -99,7 +104,7 @@ HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
 
 void main()
 {
-  const uvec2 resolution = uvec2(RENDER_WIDTH, RENDER_HEIGHT);
+  const uvec2 resolution = uvec2(pushConstants.render_width, pushConstants.render_height);
 
   const uvec2 pixel = gl_GlobalInvocationID.xy;
 
