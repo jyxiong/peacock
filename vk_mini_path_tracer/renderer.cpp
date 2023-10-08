@@ -7,7 +7,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
-PushConstants pushConstants{1024 /* render_width */, 600 /* render_height */};
+PushConstants pushConstants{800 /* render_width */, 600 /* render_height */};
 
 VkCommandBuffer AllocateAndBeginOneTimeCommandBuffer(VkDevice device, VkCommandPool commandPool)
 {
@@ -278,30 +278,40 @@ void Renderer::updateDescriptorSet()
 
 void Renderer::rayTrace()
 {
-  // start cmd to dispatch compute shader
-  auto cmdBuffer = AllocateAndBeginOneTimeCommandBuffer(m_context, m_cmdPool);
+  const uint32_t NUM_SAMPLE_BATCHES = 32;
+  for (uint32_t sampleBatch = 0; sampleBatch < NUM_SAMPLE_BATCHES; sampleBatch++)
+  {    
+    // start cmd to dispatch compute shader
+    auto cmdBuffer = AllocateAndBeginOneTimeCommandBuffer(m_context, m_cmdPool);
 
-  // bind pipeline
-  vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);
+    // bind pipeline
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);
 
-  // bind descriptor set
-  auto descriptorSet = m_descriptorSetContainer.getSet(0);
-  vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptorSetContainer.getPipeLayout(), 0, 1, &descriptorSet, 0, nullptr);
+    // bind descriptor set
+    auto descriptorSet = m_descriptorSetContainer.getSet(0);
+    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_descriptorSetContainer.getPipeLayout(), 0, 1, &descriptorSet, 0, nullptr);
 
-  // push constants
-  vkCmdPushConstants(cmdBuffer, m_descriptorSetContainer.getPipeLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &pushConstants);
+    // push constants
+    pushConstants.sample_batch = sampleBatch;
+    vkCmdPushConstants(cmdBuffer, m_descriptorSetContainer.getPipeLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &pushConstants);
 
-  // run compute shader
-  vkCmdDispatch(cmdBuffer, (pushConstants.render_width - 1) / WORKGROUP_WIDTH + 1, (pushConstants.render_height - 1) / WORKGROUP_HEIGHT + 1, 1);
+    // run compute shader
+    vkCmdDispatch(cmdBuffer, (pushConstants.render_width - 1) / WORKGROUP_WIDTH + 1, (pushConstants.render_height - 1) / WORKGROUP_HEIGHT + 1, 1);
 
-  // memory barrier
-  auto memoryBarrier = nvvk::make<VkMemoryBarrier>();
-  memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-  memoryBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-  vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+    // memory barrier
+    if (sampleBatch == NUM_SAMPLE_BATCHES - 1)
+    {
+      auto memoryBarrier = nvvk::make<VkMemoryBarrier>();
+      memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      memoryBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+      vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &memoryBarrier, 0, nullptr, 0, nullptr);
+    }
 
-  // submit, wait, and free cmd
-  EndSubmitWaitAndFreeCommandBuffer(m_context, m_context.m_queueGCT, m_cmdPool, cmdBuffer);
+    // submit, wait, and free cmd
+    EndSubmitWaitAndFreeCommandBuffer(m_context, m_context.m_queueGCT, m_cmdPool, cmdBuffer);
+
+    nvprintf("Rendered sample batch index %d.\n", sampleBatch);
+  }
 }
 
 void Renderer::saveImage(const std::string& fileName)

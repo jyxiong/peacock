@@ -114,7 +114,7 @@ void main()
   }
 
   // State of the random number generator.
-  uint rngState = resolution.x * pixel.y + pixel.x;  // Initial seed
+  uint rngState = resolution.x * (pushConstants.sample_batch * resolution.y + pixel.y) + pixel.x;  // Initial seed
 
   const vec3 cameraPosition = vec3(-0.001, 1.0, 6.0);
   const float fovVerticalSlope = 1.0 / 5.0;
@@ -181,5 +181,10 @@ void main()
   }
 
   uint index = resolution.x * pixel.y + pixel.x;
-  imageData[index] = summedPixelColor / float(NUM_SAMPLES);;
+  vec3 averageColor = summedPixelColor / float(NUM_SAMPLES);
+  if (pushConstants.sample_batch != 0)
+  {
+    averageColor = (imageData[index] * float(pushConstants.sample_batch) + averageColor) / float(pushConstants.sample_batch + 1);
+  }
+  imageData[index] = averageColor;
 }
