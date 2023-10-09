@@ -245,6 +245,7 @@ void Renderer::createTopLevelAS() {
 
   std::default_random_engine randomEngine;  // The random number generator
   std::uniform_real_distribution<float> uniformDist(-0.5f, 0.5f);
+  std::uniform_int_distribution<int> uniformIntDist(0, 8);
 
   for(int x = -10; x <= 10; x++)
   {
@@ -262,7 +263,7 @@ void Renderer::createTopLevelAS() {
       instance.transform = nvvk::toTransformMatrixKHR(transform);
       instance.instanceCustomIndex = 0;
       instance.mask = 0xFF;
-      instance.instanceShaderBindingTableRecordOffset = 0;
+      instance.instanceShaderBindingTableRecordOffset = uniformIntDist(randomEngine);
       instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
 
       m_instances.emplace_back(instance);
