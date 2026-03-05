@@ -1,32 +1,22 @@
-# Copyright 2020 NVIDIA Corporation
-# SPDX-License-Identifier: Apache-2.0
-cmake_minimum_required(VERSION 3.5)
-project(vk_mini_path_tracer)
+cmake_minimum_required(VERSION 3.22...3.31)
+project(peacock LANGUAGES C CXX)
 
-#####################################################################################
-# look for nvpro_core 1) as a sub-folder 2) at some other locations
-# this cannot be put anywhere else since we still didn't find setup.cmake yet
-#
-if(NOT BASE_DIRECTORY)
+option(NVPRO2_ENABLE_nvgl off)
+option(USE_DEFAULT_SCENE "Using a default scene at startup" ON)
 
-  find_path(BASE_DIRECTORY
-    NAMES nvpro_core/cmake/setup.cmake
-    PATHS ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/.. ${CMAKE_CURRENT_SOURCE_DIR}/../.. 
-    REQUIRED
-    DOC "Directory containing nvpro_core"
-    )
-endif()
-if(EXISTS ${BASE_DIRECTORY}/nvpro_core/cmake/setup.cmake)
-  include(${BASE_DIRECTORY}/nvpro_core/cmake/setup.cmake)
-else()
-  message(FATAL_ERROR "could not find base directory, please set BASE_DIRECTORY to folder containing nvpro_core")
-endif()
+# Disable unused libraries from nvpro_core2 - we use local copy
+set(NVPRO2_ENABLE_nvvkgltf OFF CACHE BOOL "Disable nvvkgltf from nvpro_core2" FORCE)
+set(NVPRO2_ENABLE_nvvkglsl OFF CACHE BOOL "Disable nvvkglsl from nvpro_core2" FORCE)
 
-#####################################################################################
-# Add sample packages
-#
-_add_package_VulkanSDK()
-_add_nvpro_core_lib()
+# Set Slang version
+# set(Slang_VERSION 2026.1)
 
-#####################################################################################
-add_subdirectory(vk_mini_path_tracer) # End of main tutorial
+# Add the cmake folder to the module path
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+find_package(NvproCore2 REQUIRED)
+
+# Get the name of the current directory
+get_filename_component(PROJECT_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+project(${PROJECT_NAME} VERSION 2.0 LANGUAGES C CXX)
+message(STATUS "Processing: ${PROJECT_NAME}")
+
