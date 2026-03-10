@@ -1,6 +1,5 @@
-.idea
-.vscode
-
-build
-bin*
-downloaded_reasources
+_bin/
+downloaded_reasources/
+.cache/
+.vscode/
+build/

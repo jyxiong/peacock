@@ -20,3 +20,4 @@ get_filename_component(PROJECT_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 project(${PROJECT_NAME} VERSION 2.0 LANGUAGES C CXX)
 message(STATUS "Processing: ${PROJECT_NAME}")
 
+add_subdirectory(source)

@@ -7,7 +7,7 @@ endif()
 
 # Try to find local installation first
 find_path(NvproCore2_ROOT
-    NAMES nvpro_core2/cmake/Setup.cmake
+    NAMES cmake/Setup.cmake
     PATHS
     ${CMAKE_SOURCE_DIR}/source
 )
@@ -85,7 +85,7 @@ else()
 
         # Try to find local installation first
         find_path(NvproCore2_ROOT
-            NAMES nvpro_core2/cmake/Setup.cmake
+            NAMES cmake/Setup.cmake
             PATHS
             ${CMAKE_BINARY_DIR}/_deps
             ${CMAKE_SOURCE_DIR}
@@ -108,5 +108,5 @@ if(NvproCore2_FOUND)
 
     # Include the setup file which will add all the necessary libraries
     # and create the actual targets (nvpro2::nvvk etc)
-    include(${NvproCore2_ROOT}/nvpro_core2/cmake/Setup.cmake)
+    include(${NvproCore2_ROOT}/cmake/Setup.cmake)
 endif()
