@@ -1,5 +1,8 @@
+import shaderio;
+
 // Output image where the final rendered result will be stored
-[[vk::binding(0, 0)]] RWTexture2D<float4> outImage;
+[[vk::binding(BindingIndex::eOutImage)]] RWTexture2D<float4> outImage;
+[[vk::binding(BindingIndex::eSceneDesc)]] ConstantBuffer<SceneInfo> sceneInfo;
 
 [shader("raygeneration")]
 void rgenMain()
@@ -11,6 +14,7 @@ void rgenMain()
     // Convert pixel coordinates to normalized device coordinates (NDC)
     // Range: [-1,1] for both x and y
     const float2 clipCoords = launchID / launchSize * 2.0 - 1.0;
+    const float4 viewCoords = mul(float4(clipCoords, 1.0, 1.0), sceneInfo.projInvMatrix);
 
     // Get the final color from the ray tracing result
     float3 color = float3((clipCoords + 1.0) * 0.5, 0.0);

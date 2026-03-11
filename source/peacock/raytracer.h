@@ -2,6 +2,7 @@
 
 #include <nvapp/application.hpp>
 #include <nvslang/slang.hpp>
+#include <nvutils/camera_manipulator.hpp>
 #include <nvvk/acceleration_structures.hpp>
 #include <nvvk/descriptors.hpp>
 #include <nvvk/gbuffers.hpp>
@@ -10,6 +11,8 @@
 #include <nvvk/sampler_pool.hpp>
 #include <nvvk/sbt_generator.hpp>
 #include <nvvk/staging.hpp>
+
+#include "peacock/shaderio.h"
 
 namespace peacock {
 
@@ -27,10 +30,15 @@ public:
   void onRender(VkCommandBuffer cmd) override;
 
 private:
+  void createResources();
+
   VkShaderModuleCreateInfo compileSlangShader(const std::filesystem::path& filename, const std::span<const uint32_t>& spirv);
   void createRaytraceDescriptorLayout();
   void createRayTracingPipeline();
   void createShaderBindingTable(const VkRayTracingPipelineCreateInfoKHR& rtPipelineInfo);
+
+  void updateSceneBuffer(VkCommandBuffer cmd);
+
   void raytrace(const VkCommandBuffer &cmd);
 
 private:
@@ -41,6 +49,13 @@ private:
   nvvk::SamplerPool m_samplerPool{};
   nvvk::GBuffer m_gBuffers{};
   nvslang::SlangCompiler m_slangCompiler{};
+
+  // Camera manipulator
+  std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()};
+
+  shaderio::SceneInfo m_sceneInfo;
+
+  nvvk::Buffer m_bSceneInfo;
 
   // Ray Tracing Pipeline Components
   nvvk::DescriptorPack m_rtDescPack;
