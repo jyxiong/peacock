@@ -9,7 +9,7 @@ endif()
 find_path(NvproCore2_ROOT
     NAMES cmake/Setup.cmake
     PATHS
-    ${CMAKE_SOURCE_DIR}/source
+    ${CMAKE_SOURCE_DIR}/external/nvpro_core2
 )
 
 if(NvproCore2_ROOT)

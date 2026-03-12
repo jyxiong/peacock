@@ -1,0 +1,6 @@
+[submodule "external/openvdb"]
+	path = external/openvdb
+	url = git@github.com:AcademySoftwareFoundation/openvdb.git
+[submodule "external/nvpro_core2"]
+	path = external/nvpro_core2
+	url = git@github.com:nvpro-samples/nvpro_core2.git
