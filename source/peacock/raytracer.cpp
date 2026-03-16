@@ -9,6 +9,9 @@
 
 #include "peacock/raytracer.h"
 
+#include <nanovdb/io/IO.h>
+#include <nanovdb/NanoVDB.h>
+
 #include <nvvk/check_error.hpp>
 #include <nvvk/debug_util.hpp>
 #include <nvvk/formats.hpp>
@@ -81,6 +84,8 @@ void Raytracer::onDetach() {
 
   m_allocator.destroyBuffer(m_sbtBuffer);
   m_allocator.destroyBuffer(m_bSceneInfo);
+  m_allocator.destroyBuffer(m_bVolumeDesc);
+  m_allocator.destroyBuffer(m_bVolumeGrid);
 
   m_rtDescPack.deinit();
   m_gBuffers.deinit();
@@ -119,6 +124,45 @@ void Raytracer::onUIMenu() {
     m_app->close();
 }
 
+void Raytracer::loadVolume(const std::filesystem::path& nvdbPath) {
+    // 1. 用 CPU 读取 .nvdb 文件
+    auto handle = nanovdb::io::readGrid<nanovdb::HostBuffer>(nvdbPath.string());
+    auto* grid  = handle.grid<float>();
+    if (!grid) throw std::runtime_error("Not a float grid");
+
+    // 2. 上传原始字节到 GPU SSBO
+    m_allocator.destroyBuffer(m_bVolumeGrid);
+    NVVK_CHECK(m_allocator.createBuffer(
+        m_bVolumeGrid,
+        handle.size(),
+        VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_AUTO));
+
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+    m_stagingUploader.appendBuffer(m_bVolumeGrid, handle.data(), handle.size());
+    m_stagingUploader.cmdUploadAppended(cmd);
+    m_app->submitAndWaitTempCmdBuffer(cmd);
+    m_stagingUploader.releaseStaging();
+
+    // 3. 提取 VolumeDesc 元数据
+    auto map = grid->map();        // index→world 映射
+    // worldToIndex = map 的逆，直接用 grid->worldToIndexF
+    // NanoVDB 的 map 存的是 affine 变换：index = worldToIndex * world
+    auto& invMap = grid->worldToIndexF(); // nanovdb::Map 类型
+    // 把 3x4 affine 矩阵转换成 glm::mat4
+    m_volumeDesc.worldToIndex = glm::mat4(
+        invMap.mMatF[0], invMap.mMatF[3], invMap.mMatF[6], 0,
+        invMap.mMatF[1], invMap.mMatF[4], invMap.mMatF[7], 0,
+        invMap.mMatF[2], invMap.mMatF[5], invMap.mMatF[8], 0,
+        invMap.mVecF[0], invMap.mVecF[1], invMap.mVecF[2], 1);
+
+    auto bbox = grid->indexBBox();
+    m_volumeDesc.bboxMin     = {(float)bbox.min()[0], (float)bbox.min()[1], (float)bbox.min()[2]};
+    m_volumeDesc.bboxMax     = {(float)bbox.max()[0], (float)bbox.max()[1], (float)bbox.max()[2]};
+    m_volumeDesc.densityScale = 0.1f;
+    m_volumeDesc.stepSize     = 0.5f;
+}
+
 void Raytracer::onRender(VkCommandBuffer cmd) {
   if (m_rtPipeline == VK_NULL_HANDLE) {
     return;
@@ -131,6 +175,7 @@ void Raytracer::createResources() {
   SCOPED_TIMER(__FUNCTION__);
 
   m_allocator.destroyBuffer(m_bSceneInfo);
+  m_allocator.destroyBuffer(m_bVolumeDesc);
 
   // Create a buffer (UBO) to store the scene information
   NVVK_CHECK(m_allocator.createBuffer(m_bSceneInfo, sizeof(shaderio::SceneInfo),
@@ -138,6 +183,13 @@ void Raytracer::createResources() {
                                           VK_BUFFER_USAGE_2_TRANSFER_DST_BIT,
                                       VMA_MEMORY_USAGE_AUTO));
   NVVK_DBG_NAME(m_bSceneInfo.buffer);
+
+  // Create a buffer (UBO) to store the volume description
+  NVVK_CHECK(m_allocator.createBuffer(m_bVolumeDesc, sizeof(shaderio::VolumeDesc),
+                                      VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT |
+                                          VK_BUFFER_USAGE_2_TRANSFER_DST_BIT,
+                                      VMA_MEMORY_USAGE_AUTO));
+  NVVK_DBG_NAME(m_bVolumeDesc.buffer);
 
   assert(m_stagingUploader.isAppendedEmpty());
   VkCommandBuffer cmd = m_app->createTempCmdBuffer();
@@ -159,7 +211,14 @@ void Raytracer::createRaytraceDescriptorLayout() {
                        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                        .descriptorCount = 1,
                        .stageFlags = VK_SHADER_STAGE_ALL});
-
+  bindings.addBinding({.binding = shaderio::BindingIndex::eVolumeGrid,
+                      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      .descriptorCount = 1,
+                      .stageFlags = VK_SHADER_STAGE_ALL});
+  bindings.addBinding({.binding = shaderio::BindingIndex::eVolumeDesc,
+                      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                      .descriptorCount = 1,
+                      .stageFlags = VK_SHADER_STAGE_ALL});
   // Creating a PUSH descriptor set and set layout from the bindings
   m_rtDescPack.init(bindings, m_app->getDevice(), 0,
                     VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR);
@@ -305,6 +364,11 @@ void Raytracer::raytrace(const VkCommandBuffer &cmd) {
                m_gBuffers.getColorImageView(), VK_IMAGE_LAYOUT_GENERAL);
   write.append(m_rtDescPack.makeWrite(shaderio::BindingIndex::eSceneDesc),
                m_bSceneInfo.buffer, VK_IMAGE_LAYOUT_UNDEFINED);
+  write.append(m_rtDescPack.makeWrite(shaderio::BindingIndex::eVolumeGrid),
+               m_bVolumeGrid.buffer, VK_IMAGE_LAYOUT_UNDEFINED);
+  write.append(m_rtDescPack.makeWrite(shaderio::BindingIndex::eVolumeDesc),
+                m_bVolumeDesc.buffer, VK_IMAGE_LAYOUT_UNDEFINED);
+  
   vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                             m_rtPipelineLayout, 0, write.size(), write.data());
 

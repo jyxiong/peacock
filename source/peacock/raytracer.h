@@ -30,6 +30,9 @@ public:
   void onRender(VkCommandBuffer cmd) override;
 
 private:
+
+  void loadVolume(const std::filesystem::path &vdbPath);
+
   void createResources();
 
   VkShaderModuleCreateInfo compileSlangShader(const std::filesystem::path& filename, const std::span<const uint32_t>& spirv);
@@ -54,8 +57,11 @@ private:
   std::shared_ptr<nvutils::CameraManipulator> m_cameraManip{std::make_shared<nvutils::CameraManipulator>()};
 
   shaderio::SceneInfo m_sceneInfo;
+  shaderio::VolumeDesc m_volumeDesc;
 
   nvvk::Buffer m_bSceneInfo;
+  nvvk::Buffer m_bVolumeDesc;
+  nvvk::Buffer m_bVolumeGrid;   // SSBO，存放 nanovdb::HostBuffer 原始字节
 
   // Ray Tracing Pipeline Components
   nvvk::DescriptorPack m_rtDescPack;

@@ -1,0 +1,13 @@
+{
+  "slang.predefinedMacros": [
+    "MY_MACRO",
+    "MY_VALUE_MACRO=1"
+  ],
+  "slang.additionalSearchPaths": [
+    ".",
+    "external/nvpro_core2/",
+    "external/openvdb/nanovdb/"
+  ],
+  "slang.enableCommitCharactersInAutoCompletion": "on",
+  "slang.format.clangFormatStyle ": "file"
+}
