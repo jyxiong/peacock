@@ -1,5 +1,8 @@
 #pragma once
 
+#include <filesystem>
+
+#include <nanovdb/GridHandle.h>
 #include <nvapp/application.hpp>
 #include <nvslang/slang.hpp>
 #include <nvutils/camera_manipulator.hpp>
@@ -58,10 +61,17 @@ private:
 
   shaderio::SceneInfo m_sceneInfo;
   shaderio::VolumeDesc m_volumeDesc;
+  nanovdb::GridHandle<> m_gridHandle;
+  bool m_volumeUploaded{false};
 
+  // camera info
   nvvk::Buffer m_bSceneInfo;
+
+  // volume info
   nvvk::Buffer m_bVolumeDesc;
-  nvvk::Buffer m_bVolumeGrid;   // SSBO，存放 nanovdb::HostBuffer 原始字节
+
+  // volume grid data (NanoVDB)
+  nvvk::Buffer m_bVolumeGrid;
 
   // Ray Tracing Pipeline Components
   nvvk::DescriptorPack m_rtDescPack;

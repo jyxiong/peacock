@@ -1,0 +1,17 @@
+set(EXTERNAL_DIR "external")
+
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+if(NOT TARGET openvdb_static)
+    option(USE_NANOVDB "" ON)
+    option(OPENVDB_BUILD_BINARIES "" OFF)
+    option(OPENVDB_BUILD_NANOVDB "" ON)
+    option(OPENVDB_USE_DELAYED_LOADING "" OFF)
+    option(OPENVDB_ENABLE_UNINSTALL "" OFF)
+    option(NANOVDB_USE_OPENVDB "" ON)
+    option(NANOVDB_USE_TBB "" ON)
+    option(NANOVDB_BUILD_TOOLS "" OFF)
+    option(OPENVDB_CORE_SHARED "" OFF)
+    add_subdirectory(openvdb)
+    set_target_properties(openvdb_static PROPERTIES FOLDER ${EXTERNAL_DIR}/openvdb)
+endif()

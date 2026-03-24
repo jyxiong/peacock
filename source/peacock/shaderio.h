@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstddef>
+#include <type_traits>
+
 #include <nvshaders/slang_types.h>
 
 NAMESPACE_SHADERIO_BEGIN()
@@ -15,16 +18,23 @@ struct SceneInfo {
   glm::mat4 viewProjMatrix; // View projection matrix for the scene
   glm::mat4 projInvMatrix;  // Inverse projection matrix for the scene
   glm::mat4 viewInvMatrix;  // Inverse view matrix for the scene
-  glm::vec3 cameraPosition; // Camera position in world space
-  int useSky;               // Whether to use the sky rendering
+  glm::vec4 cameraPositionUseSky;      // xyz: camera position, w: useSky
+  glm::vec4 cameraForwardTanHalfFov;   // xyz: forward, w: tan(fov/2)
+  glm::vec4 cameraRightAspect;         // xyz: right, w: aspect
+  glm::vec4 cameraUpPad;               // xyz: up, w: padding
 };
 
 struct VolumeDesc {
-  glm::mat4 worldToIndex;  // grid->worldToIndexF() 的 4x4 矩阵
-  glm::vec3 bboxMin;       // index-space AABB min（来自 grid->indexBBox().min()）
-  float     densityScale;
-  glm::vec3 bboxMax;       // index-space AABB max
-  float     stepSize;      // 步进大小（index space voxel 单位）
+  glm::mat4 worldToIndex{1.0f};
+  glm::vec4 bboxMinDensityScale{0.0f, 0.0f, 0.0f, 0.1f};
+  glm::vec4 bboxMaxStepSize{0.0f, 0.0f, 0.0f, 0.5f};
+  glm::uvec4 nanoGridInfo{0u, 0u, 0u, 0u};
 };
+
+static_assert(std::is_standard_layout_v<SceneInfo>);
+static_assert(std::is_standard_layout_v<VolumeDesc>);
+static_assert(offsetof(VolumeDesc, bboxMinDensityScale) == sizeof(glm::mat4));
+static_assert(offsetof(VolumeDesc, bboxMaxStepSize) == sizeof(glm::mat4) + sizeof(glm::vec4));
+static_assert(offsetof(VolumeDesc, nanoGridInfo) == sizeof(glm::mat4) + sizeof(glm::vec4) * 2);
 
 NAMESPACE_SHADERIO_END()

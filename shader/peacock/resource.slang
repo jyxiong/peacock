@@ -1,5 +1,0 @@
-module resource;
-
-namespace peacock {
-
-}

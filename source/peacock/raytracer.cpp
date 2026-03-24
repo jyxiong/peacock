@@ -9,8 +9,14 @@
 
 #include "peacock/raytracer.h"
 
-#include <nanovdb/io/IO.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <stdexcept>
+
+#include <openvdb/openvdb.h>
 #include <nanovdb/NanoVDB.h>
+#include <nanovdb/tools/CreateNanoGrid.h>
 
 #include <nvvk/check_error.hpp>
 #include <nvvk/debug_util.hpp>
@@ -20,6 +26,89 @@
 #include "peacock/common/path_utils.h"
 
 using namespace peacock;
+
+namespace {
+
+void setupCameraForBox(const std::shared_ptr<nvutils::CameraManipulator>& camera,
+                       const glm::vec3& boxMin,
+                       const glm::vec3& boxMax,
+                       float aspect) {
+  const glm::vec3 center = (boxMin + boxMax) * 0.5f;
+  const glm::vec3 halfExtent = (boxMax - boxMin) * 0.5f;
+
+  const float safeAspect = std::max(aspect, 0.1f);
+  const float tanHalfFovY = std::tan(0.5f * glm::radians(camera->getFov()));
+  const float tanHalfFovX = tanHalfFovY * safeAspect;
+
+  const float distX = halfExtent.x / std::max(tanHalfFovX, 1e-4f);
+  const float distY = halfExtent.y / std::max(tanHalfFovY, 1e-4f);
+  const float margin = 1.15f;
+  const float distance = std::max(distX, distY) * margin + halfExtent.z;
+
+  const glm::vec3 eye = center + glm::vec3(0.0f, 0.0f, distance);
+  camera->setLookat(eye, center, glm::vec3(0.0f, 1.0f, 0.0f));
+}
+
+glm::mat4 makeWorldToIndexMatrix(const nanovdb::Map& map) {
+  const float tx = -(map.mVecF[0] * map.mInvMatF[0] + map.mVecF[1] * map.mInvMatF[3] +
+                     map.mVecF[2] * map.mInvMatF[6]);
+  const float ty = -(map.mVecF[0] * map.mInvMatF[1] + map.mVecF[1] * map.mInvMatF[4] +
+                     map.mVecF[2] * map.mInvMatF[7]);
+  const float tz = -(map.mVecF[0] * map.mInvMatF[2] + map.mVecF[1] * map.mInvMatF[5] +
+                     map.mVecF[2] * map.mInvMatF[8]);
+
+  return glm::mat4(
+      map.mInvMatF[0], map.mInvMatF[3], map.mInvMatF[6], 0.0f,
+      map.mInvMatF[1], map.mInvMatF[4], map.mInvMatF[7], 0.0f,
+      map.mInvMatF[2], map.mInvMatF[5], map.mInvMatF[8], 0.0f,
+      tx, ty, tz, 1.0f);
+}
+
+openvdb::FloatGrid::Ptr loadFirstFloatGrid(const std::filesystem::path& vdbPath) {
+  openvdb::initialize();
+
+  openvdb::io::File file(vdbPath.string());
+  file.open();
+
+  openvdb::FloatGrid::Ptr floatGrid;
+  for (auto it = file.beginName(); it != file.endName(); ++it) {
+    auto gridBase = file.readGrid(*it);
+    floatGrid = openvdb::gridPtrCast<openvdb::FloatGrid>(gridBase);
+    if (floatGrid) {
+      break;
+    }
+  }
+
+  file.close();
+
+  if (!floatGrid) {
+    throw std::runtime_error("No float grid found in VDB file: " + vdbPath.string());
+  }
+
+  return floatGrid;
+}
+
+shaderio::VolumeDesc makeVolumeDesc(const nanovdb::NanoGrid<float>& grid,
+                                    uint32_t gridByteSize) {
+  shaderio::VolumeDesc desc{};
+  desc.worldToIndex = glm::transpose(makeWorldToIndexMatrix(grid.map()));
+
+  const auto bbox = grid.worldBBox();
+  printf("[Volume] worldBBox min=(%.4f, %.4f, %.4f) max=(%.4f, %.4f, %.4f)\n",
+         bbox.min()[0], bbox.min()[1], bbox.min()[2],
+         bbox.max()[0], bbox.max()[1], bbox.max()[2]);
+  desc.bboxMinDensityScale =
+      glm::vec4(static_cast<float>(bbox.min()[0]),
+                static_cast<float>(bbox.min()[1]),
+                static_cast<float>(bbox.min()[2]), 0.1f);
+  desc.bboxMaxStepSize = glm::vec4(static_cast<float>(bbox.max()[0]),
+                                   static_cast<float>(bbox.max()[1]),
+                                   static_cast<float>(bbox.max()[2]), 0.5f);
+  desc.nanoGridInfo = glm::uvec4(gridByteSize, (gridByteSize + 3u) / 4u, 0u, 0u);
+  return desc;
+}
+
+} // namespace
 
 void Raytracer::onAttach(nvapp::Application *app) {
   m_app = app;
@@ -71,6 +160,11 @@ void Raytracer::onAttach(nvapp::Application *app) {
   // Initialize SBT generator with queried ray tracing properties.
   m_sbtGenerator.init(m_app->getDevice(), m_rtProperties);
 
+  loadVolume("/home/jyxiong/Projects/peacock/asset/bunny.vdb");
+
+  setupCameraForBox(m_cameraManip, glm::vec3(m_volumeDesc.bboxMinDensityScale),
+                    glm::vec3(m_volumeDesc.bboxMaxStepSize), 1.0f);
+
   createResources();
   createRaytraceDescriptorLayout();
   createRayTracingPipeline();
@@ -97,6 +191,11 @@ void Raytracer::onDetach() {
 
 void Raytracer::onResize(VkCommandBuffer cmd, const VkExtent2D &size) {
   NVVK_CHECK(m_gBuffers.update(cmd, size));
+  if (size.height > 0) {
+    const float aspect = static_cast<float>(size.width) / static_cast<float>(size.height);
+    setupCameraForBox(m_cameraManip, glm::vec3(m_volumeDesc.bboxMinDensityScale),
+                      glm::vec3(m_volumeDesc.bboxMaxStepSize), aspect);
+  }
 }
 
 void Raytracer::onUIRender() {
@@ -124,43 +223,59 @@ void Raytracer::onUIMenu() {
     m_app->close();
 }
 
-void Raytracer::loadVolume(const std::filesystem::path& nvdbPath) {
-    // 1. 用 CPU 读取 .nvdb 文件
-    auto handle = nanovdb::io::readGrid<nanovdb::HostBuffer>(nvdbPath.string());
-    auto* grid  = handle.grid<float>();
-    if (!grid) throw std::runtime_error("Not a float grid");
+void Raytracer::loadVolume(const std::filesystem::path& vdbPath) {
+  if (!std::filesystem::exists(vdbPath)) {
+    throw std::runtime_error("Volume file does not exist: " + vdbPath.string());
+  }
 
-    // 2. 上传原始字节到 GPU SSBO
+  auto floatGrid = loadFirstFloatGrid(vdbPath);
+  m_gridHandle = nanovdb::tools::createNanoGrid(*floatGrid);
+
+  const auto* nanoGrid = m_gridHandle.grid<float>();
+  if (!nanoGrid) {
+    throw std::runtime_error("Failed to convert VDB float grid to NanoVDB: " +
+                             vdbPath.string());
+  }
+
+  m_volumeDesc = makeVolumeDesc(*nanoGrid,
+                                static_cast<uint32_t>(m_gridHandle.gridSize()));
+
+  const VkDeviceSize gridByteSize = static_cast<VkDeviceSize>(m_gridHandle.gridSize());
+  if(m_gridHandle.data() == nullptr) {
+    throw std::runtime_error("NanoVDB handle does not contain raw grid data: " +
+                             vdbPath.string());
+  }
+
+  // Upload buffers
+  assert(m_stagingUploader.isAppendedEmpty());
+  VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+  {
+    m_allocator.destroyBuffer(m_bVolumeDesc);
     m_allocator.destroyBuffer(m_bVolumeGrid);
-    NVVK_CHECK(m_allocator.createBuffer(
-        m_bVolumeGrid,
-        handle.size(),
-        VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO));
 
-    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
-    m_stagingUploader.appendBuffer(m_bVolumeGrid, handle.data(), handle.size());
-    m_stagingUploader.cmdUploadAppended(cmd);
-    m_app->submitAndWaitTempCmdBuffer(cmd);
-    m_stagingUploader.releaseStaging();
+    // Create a buffer (UBO) to store the volume description
+    NVVK_CHECK(m_allocator.createBuffer(m_bVolumeDesc, sizeof(shaderio::VolumeDesc),
+                                        VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT |
+                                            VK_BUFFER_USAGE_2_TRANSFER_DST_BIT,
+                                        VMA_MEMORY_USAGE_AUTO));
+    NVVK_CHECK(m_stagingUploader.appendBuffer(m_bVolumeDesc, 0, sizeof(m_volumeDesc),
+                                              &m_volumeDesc));
+    NVVK_DBG_NAME(m_bVolumeDesc.buffer);
 
-    // 3. 提取 VolumeDesc 元数据
-    auto map = grid->map();        // index→world 映射
-    // worldToIndex = map 的逆，直接用 grid->worldToIndexF
-    // NanoVDB 的 map 存的是 affine 变换：index = worldToIndex * world
-    auto& invMap = grid->worldToIndexF(); // nanovdb::Map 类型
-    // 把 3x4 affine 矩阵转换成 glm::mat4
-    m_volumeDesc.worldToIndex = glm::mat4(
-        invMap.mMatF[0], invMap.mMatF[3], invMap.mMatF[6], 0,
-        invMap.mMatF[1], invMap.mMatF[4], invMap.mMatF[7], 0,
-        invMap.mMatF[2], invMap.mMatF[5], invMap.mMatF[8], 0,
-        invMap.mVecF[0], invMap.mVecF[1], invMap.mVecF[2], 1);
 
-    auto bbox = grid->indexBBox();
-    m_volumeDesc.bboxMin     = {(float)bbox.min()[0], (float)bbox.min()[1], (float)bbox.min()[2]};
-    m_volumeDesc.bboxMax     = {(float)bbox.max()[0], (float)bbox.max()[1], (float)bbox.max()[2]};
-    m_volumeDesc.densityScale = 0.1f;
-    m_volumeDesc.stepSize     = 0.5f;
+    NVVK_CHECK(m_allocator.createBuffer(m_bVolumeGrid, gridByteSize,
+                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT |
+                        VK_BUFFER_USAGE_2_TRANSFER_DST_BIT,
+                      VMA_MEMORY_USAGE_AUTO));
+    NVVK_CHECK(m_stagingUploader.appendBuffer(m_bVolumeGrid, 0, gridByteSize,
+                                              m_gridHandle.data()));
+    NVVK_DBG_NAME(m_bVolumeGrid.buffer);
+  }
+
+  m_stagingUploader.cmdUploadAppended(cmd);
+  m_app->submitAndWaitTempCmdBuffer(cmd);
+  m_stagingUploader.releaseStaging();
+  m_volumeUploaded = true;
 }
 
 void Raytracer::onRender(VkCommandBuffer cmd) {
@@ -175,7 +290,6 @@ void Raytracer::createResources() {
   SCOPED_TIMER(__FUNCTION__);
 
   m_allocator.destroyBuffer(m_bSceneInfo);
-  m_allocator.destroyBuffer(m_bVolumeDesc);
 
   // Create a buffer (UBO) to store the scene information
   NVVK_CHECK(m_allocator.createBuffer(m_bSceneInfo, sizeof(shaderio::SceneInfo),
@@ -184,19 +298,10 @@ void Raytracer::createResources() {
                                       VMA_MEMORY_USAGE_AUTO));
   NVVK_DBG_NAME(m_bSceneInfo.buffer);
 
-  // Create a buffer (UBO) to store the volume description
-  NVVK_CHECK(m_allocator.createBuffer(m_bVolumeDesc, sizeof(shaderio::VolumeDesc),
-                                      VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT |
-                                          VK_BUFFER_USAGE_2_TRANSFER_DST_BIT,
-                                      VMA_MEMORY_USAGE_AUTO));
-  NVVK_DBG_NAME(m_bVolumeDesc.buffer);
-
   assert(m_stagingUploader.isAppendedEmpty());
   VkCommandBuffer cmd = m_app->createTempCmdBuffer();
   m_stagingUploader.cmdUploadAppended(cmd);
-
   m_app->submitAndWaitTempCmdBuffer(cmd);
-
   m_stagingUploader.releaseStaging();
 }
 
@@ -332,24 +437,37 @@ void Raytracer::updateSceneBuffer(VkCommandBuffer cmd) {
   NVVK_DBG_SCOPE(cmd); // <-- Helps to debug in NSight
   const glm::mat4 &viewMatrix = m_cameraManip->getViewMatrix();
   const glm::mat4 &projMatrix = m_cameraManip->getPerspectiveMatrix();
+  const glm::vec3 eye = m_cameraManip->getEye();
+  const glm::vec3 center = m_cameraManip->getCenter();
+  const glm::vec3 up = m_cameraManip->getUp();
+  const glm::vec3 forward = glm::normalize(center - eye);
+  const glm::vec3 right = glm::normalize(glm::cross(forward, up));
+  const glm::vec3 cameraUp = glm::normalize(glm::cross(right, forward));
+  const float tanHalfFov = std::tan(0.5f * glm::radians(m_cameraManip->getFov()));
+  const float aspect = m_cameraManip->getAspectRatio();
 
   m_sceneInfo.viewProjMatrix =
-      projMatrix * viewMatrix; // Combine the view and projection matrices
+    glm::transpose(projMatrix * viewMatrix); // Match Slang row-major layout
   m_sceneInfo.projInvMatrix =
-      glm::inverse(projMatrix); // Inverse projection matrix
-  m_sceneInfo.viewInvMatrix = glm::inverse(viewMatrix); // Inverse view matrix
+    glm::transpose(glm::inverse(projMatrix)); // Inverse projection matrix
+  m_sceneInfo.viewInvMatrix =
+    glm::transpose(glm::inverse(viewMatrix)); // Inverse view matrix
+  m_sceneInfo.cameraPositionUseSky = glm::vec4(eye, 0.0f);
+  m_sceneInfo.cameraForwardTanHalfFov = glm::vec4(forward, tanHalfFov);
+  m_sceneInfo.cameraRightAspect = glm::vec4(right, aspect);
+  m_sceneInfo.cameraUpPad = glm::vec4(cameraUp, 0.0f);
 
   // Making sure the scene information buffer is updated before rendering
   // Wait that the fragment shader is done reading the previous scene
   // information and wait for the transfer to complete
   nvvk::cmdBufferMemoryBarrier(cmd, {m_bSceneInfo.buffer,
-                                     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                     VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                                      VK_PIPELINE_STAGE_2_TRANSFER_BIT});
   vkCmdUpdateBuffer(cmd, m_bSceneInfo.buffer, 0, sizeof(shaderio::SceneInfo),
                     &m_sceneInfo);
   nvvk::cmdBufferMemoryBarrier(cmd, {m_bSceneInfo.buffer,
                                      VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                                     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT});
+                                     VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR});
 }
 
 void Raytracer::raytrace(const VkCommandBuffer &cmd) {
