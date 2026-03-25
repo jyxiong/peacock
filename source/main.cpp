@@ -1,7 +1,9 @@
+#include <memory>
 #include <nvapp/application.hpp>
 #include <nvapp/elem_default_menu.hpp>
 #include <nvapp/elem_default_title.hpp>
 #include <nvvk/context.hpp>
+#include <nvapp/elem_camera.hpp>
 
 #include "peacock/raytracer.h"
 
@@ -48,12 +50,19 @@ int main() {
       .queues = vkContext.getQueueInfos(),
   };
 
+  auto raytracer = std::make_shared<Raytracer>();
+  auto elemCamera = std::make_shared<nvapp::ElementCamera>();
+
+  auto cameraManip = raytracer->getCameraManipulator();
+  elemCamera->setCameraManipulator(cameraManip);
+
   // Create the application
   nvapp::Application application;
   application.init(appInfo);
   application.addElement(std::make_shared<nvapp::ElementDefaultMenu>());
   application.addElement(std::make_shared<nvapp::ElementDefaultWindowTitle>());
-  application.addElement(std::make_shared<Raytracer>());
+  application.addElement(raytracer);
+  application.addElement(elemCamera);
 
   application.run(); // Start the application, loop until the window is closed
 

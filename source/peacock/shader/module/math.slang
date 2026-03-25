@@ -1,7 +1,8 @@
 module math;
 
-__include math.ray;
 __include math.bbox;
+__include math.define;
+__include math.ray;
 
 public func rayBoxIntersect(Ray r, BoundingBox bbox) -> Optional<float2> {
   float3 invDir = 1.0 / r.d;

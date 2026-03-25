@@ -18,10 +18,8 @@ struct SceneInfo {
   glm::mat4 viewProjMatrix; // View projection matrix for the scene
   glm::mat4 projInvMatrix;  // Inverse projection matrix for the scene
   glm::mat4 viewInvMatrix;  // Inverse view matrix for the scene
-  glm::vec4 cameraPositionUseSky;      // xyz: camera position, w: useSky
-  glm::vec4 cameraForwardTanHalfFov;   // xyz: forward, w: tan(fov/2)
-  glm::vec4 cameraRightAspect;         // xyz: right, w: aspect
-  glm::vec4 cameraUpPad;               // xyz: up, w: padding
+  glm::vec3 cameraPosition;
+  int useSky; // Whether to use sky color when ray misses the volume
 };
 
 struct VolumeDesc {

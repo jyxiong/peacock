@@ -2,6 +2,7 @@
 
 #include <filesystem>
 
+#include <memory>
 #include <nanovdb/GridHandle.h>
 #include <nvapp/application.hpp>
 #include <nvslang/slang.hpp>
@@ -31,6 +32,8 @@ public:
   void onUIRender() override;
   void onUIMenu() override;
   void onRender(VkCommandBuffer cmd) override;
+
+  std::shared_ptr<nvutils::CameraManipulator> getCameraManipulator() const { return m_cameraManip; }
 
 private:
 

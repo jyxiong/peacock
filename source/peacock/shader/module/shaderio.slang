@@ -13,10 +13,8 @@ public struct SceneInfo {
   public float4x4 viewProjMatrix;
   public float4x4 projInvMatrix;
   public float4x4 viewInvMatrix;
-  public float4   cameraPositionUseSky;
-  public float4   cameraForwardTanHalfFov;
-  public float4   cameraRightAspect;
-  public float4   cameraUpPad;
+  public float4   cameraPosition;
+  public int     useSky;
 };
 
 public struct VolumeDesc {

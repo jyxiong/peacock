@@ -13,22 +13,40 @@ void rgenMain()
     float2 launchID   = (float2)DispatchRaysIndex().xy;
     float2 launchSize = (float2)DispatchRaysDimensions().xy;
 
-    float2 uv = ((launchID + 0.5) / launchSize) * 2.0 - 1.0;
-    float3 worldOri = sceneInfo.cameraPositionUseSky.xyz;
-    float3 forward = sceneInfo.cameraForwardTanHalfFov.xyz;
-    float3 right = sceneInfo.cameraRightAspect.xyz;
-    float3 up = sceneInfo.cameraUpPad.xyz;
-    float tanHalfFov = sceneInfo.cameraForwardTanHalfFov.w;
-    float aspect = sceneInfo.cameraRightAspect.w;
+    float2 clipCoords = launchID / launchSize * 2.0 - 1.0;
+    float4 viewCoords = mul(float4(clipCoords, 1.0, 1.0), sceneInfo.projInvMatrix);
 
-    float3 worldDir = normalize(forward
-                                + uv.x * aspect * tanHalfFov * right
-                                + uv.y * tanHalfFov * up);
+    float3 worldOri = mul(float4(0.0, 0.0, 0.0, 1.0), sceneInfo.viewInvMatrix).xyz;
+    float3 worldDir = mul(float4(normalize(viewCoords.xyz), 0.0), sceneInfo.viewInvMatrix).xyz;
 
     Ray ray = { worldOri, worldDir };
     BoundingBox bbox = volumeDesc.boundingBox();
     Optional<float2> hit = rayBoxIntersect(ray, bbox);
-    float4 color = (hit != none) ? float4(1, 1, 1, 1) : float4(0, 0, 0, 1);
+
+    float4 color = float4(0, 0, 0, 1);
+    if (hit != none)
+    {
+        NanovdbVolume vol = { volumeGrid };
+        float tNear    = max(hit.value.x, 0.0);
+        float tFar     = hit.value.y;
+        float stepSize = volumeDesc.stepSize();
+
+        const float dt = 0.5;
+        float transmittance = 1.0;
+
+
+        float t = tNear;
+        while (t < tFar)
+        {
+            float3 pos    = ray.o + t * ray.d;
+            float sigma = vol(pos) * 0.1f;
+            transmittance *= 1.0 - sigma * dt;
+
+            t += stepSize;
+        }
+
+        color = float4(float3(1.0 - transmittance), 1.0);
+    }
 
     outImage[int2(launchID)] = color;
 }

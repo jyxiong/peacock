@@ -10,17 +10,9 @@ public struct GridVolume: Volume {
 
   public func dimension() -> uint3 { return m_dimension; }
 
-  public func inside(uint3 pos) -> bool { return all(pos < m_dimension); }
   public func inside(float3 pos) -> bool { return inside(toIndex(pos)); }
 
   public func boundingBox() -> BoundingBox { return m_bbox; }
-  public func boundingBox(float3 pos) -> BoundingBox { return boundingBox(toIndex(pos)); }
-  public func boundingBox(uint3 ijk) -> BoundingBox {
-    if (all(ijk == clamp(ijk, uint3(0), m_dimension - 1))) return {
-        m_bbox.min + float3(ijk + 0) * m_spacing,
-        m_bbox.min + float3(ijk + 1) * m_spacing,
-    }; else return m_bbox;
-  }
 
   public float operator()(float3 pos) { return this[toIndex(pos)]; }
   public __subscript(uint3 ijk) -> float {get {

@@ -21,6 +21,7 @@
 #include <nvvk/check_error.hpp>
 #include <nvvk/debug_util.hpp>
 #include <nvvk/formats.hpp>
+#include <nvgui/camera.hpp>
 
 #include "peacock/_autogen/raytrace.slang.h"
 #include "peacock/common/path_utils.h"
@@ -199,17 +200,21 @@ void Raytracer::onResize(VkCommandBuffer cmd, const VkExtent2D &size) {
 }
 
 void Raytracer::onUIRender() {
-  // [optional] convenient setting panel
-  ImGui::Begin("Settings");
-  ImGui::TextDisabled("%d FPS / %.3fms",
-                      static_cast<int>(ImGui::GetIO().Framerate),
-                      1000.F / ImGui::GetIO().Framerate);
+  if (ImGui::Begin("Viewport")) {
+    ImGui::Image(ImTextureID(m_gBuffers.getDescriptorSet()),
+                 ImGui::GetContentRegionAvail());
+  }
   ImGui::End();
 
-  // Rendered image displayed fully in 'Viewport' window
-  ImGui::Begin("Viewport");
-  ImGui::Image(ImTextureID(m_gBuffers.getDescriptorSet()),
-               ImGui::GetContentRegionAvail());
+  if (ImGui::Begin("Settings")) {
+    ImGui::TextDisabled("%d FPS / %.3fms",
+                        static_cast<int>(ImGui::GetIO().Framerate),
+                        1000.F / ImGui::GetIO().Framerate);
+
+    if (ImGui::CollapsingHeader("Camera")) {
+      nvgui::CameraWidget(m_cameraManip);
+    }
+  }
   ImGui::End();
 }
 
@@ -437,25 +442,12 @@ void Raytracer::updateSceneBuffer(VkCommandBuffer cmd) {
   NVVK_DBG_SCOPE(cmd); // <-- Helps to debug in NSight
   const glm::mat4 &viewMatrix = m_cameraManip->getViewMatrix();
   const glm::mat4 &projMatrix = m_cameraManip->getPerspectiveMatrix();
-  const glm::vec3 eye = m_cameraManip->getEye();
-  const glm::vec3 center = m_cameraManip->getCenter();
-  const glm::vec3 up = m_cameraManip->getUp();
-  const glm::vec3 forward = glm::normalize(center - eye);
-  const glm::vec3 right = glm::normalize(glm::cross(forward, up));
-  const glm::vec3 cameraUp = glm::normalize(glm::cross(right, forward));
-  const float tanHalfFov = std::tan(0.5f * glm::radians(m_cameraManip->getFov()));
-  const float aspect = m_cameraManip->getAspectRatio();
 
-  m_sceneInfo.viewProjMatrix =
-    glm::transpose(projMatrix * viewMatrix); // Match Slang row-major layout
-  m_sceneInfo.projInvMatrix =
-    glm::transpose(glm::inverse(projMatrix)); // Inverse projection matrix
-  m_sceneInfo.viewInvMatrix =
-    glm::transpose(glm::inverse(viewMatrix)); // Inverse view matrix
-  m_sceneInfo.cameraPositionUseSky = glm::vec4(eye, 0.0f);
-  m_sceneInfo.cameraForwardTanHalfFov = glm::vec4(forward, tanHalfFov);
-  m_sceneInfo.cameraRightAspect = glm::vec4(right, aspect);
-  m_sceneInfo.cameraUpPad = glm::vec4(cameraUp, 0.0f);
+  m_sceneInfo.viewProjMatrix = projMatrix * viewMatrix;
+  m_sceneInfo.projInvMatrix = glm::inverse(m_cameraManip->getPerspectiveMatrix());
+  m_sceneInfo.viewInvMatrix = glm::inverse(m_cameraManip->getViewMatrix());
+  m_sceneInfo.cameraPosition = m_cameraManip->getEye();
+  m_sceneInfo.useSky = 0;
 
   // Making sure the scene information buffer is updated before rendering
   // Wait that the fragment shader is done reading the previous scene
