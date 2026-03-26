@@ -1,3 +1,4 @@
+#include "vulkan/vulkan_core.h"
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS                                           \
   1 // Use dynamic Vulkan functions for VMA (Vulkan Memory Allocator)
 #define VMA_IMPLEMENTATION // Implementation of the Vulkan Memory Allocator
@@ -7,16 +8,21 @@
     printf("\n");                                                              \
   }
 
+#define STB_IMAGE_IMPLEMENTATION
+
+
 #include "peacock/raytracer.h"
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <stdexcept>
 
 #include <openvdb/openvdb.h>
 #include <nanovdb/NanoVDB.h>
 #include <nanovdb/tools/CreateNanoGrid.h>
+#include <stb/stb_image.h>
 
 #include <nvvk/check_error.hpp>
 #include <nvvk/debug_util.hpp>
@@ -105,7 +111,11 @@ shaderio::VolumeDesc makeVolumeDesc(const nanovdb::NanoGrid<float>& grid,
   desc.bboxMaxStepSize = glm::vec4(static_cast<float>(bbox.max()[0]),
                                    static_cast<float>(bbox.max()[1]),
                                    static_cast<float>(bbox.max()[2]), 0.5f);
-  desc.nanoGridInfo = glm::uvec4(gridByteSize, (gridByteSize + 3u) / 4u, 0u, 0u);
+  // Majorant: max density value × densityScale, stored as float bits for the shader
+  const float maxDensity = static_cast<float>(grid.tree().root().maximum());
+  const float sigmaMax   = std::max(maxDensity * 0.1f, 1e-6f);  // 0.1f == densityScale default
+  desc.nanoGridInfo = glm::uvec4(gridByteSize, (gridByteSize + 3u) / 4u,
+                                 std::bit_cast<uint32_t>(sigmaMax), 0u);
   return desc;
 }
 
@@ -144,16 +154,15 @@ void Raytracer::onAttach(nvapp::Application *app) {
 
   // Acquiring the texture sampler which will be used for displaying the GBuffer
   m_samplerPool.init(app->getDevice());
-  VkSampler linearSampler{};
-  NVVK_CHECK(m_samplerPool.acquireSampler(linearSampler));
-  NVVK_DBG_NAME(linearSampler);
+  NVVK_CHECK(m_samplerPool.acquireSampler(m_linearSampler));
+  NVVK_DBG_NAME(m_linearSampler);
 
   // Create the G-Buffers
   nvvk::GBufferInitInfo gBufferInit{
       .allocator = &m_allocator,
-      .colorFormats = {VK_FORMAT_R8G8B8A8_UNORM},
+      .colorFormats = {VK_FORMAT_R16G16B16A16_SFLOAT},  // float16 for HDR progressive accumulation
       .depthFormat = nvvk::findDepthFormat(m_app->getPhysicalDevice()),
-      .imageSampler = linearSampler,
+      .imageSampler = m_linearSampler,
       .descriptorPool = m_app->getTextureDescriptorPool(),
   };
   m_gBuffers.init(gBufferInit);
@@ -162,6 +171,7 @@ void Raytracer::onAttach(nvapp::Application *app) {
   m_sbtGenerator.init(m_app->getDevice(), m_rtProperties);
 
   loadVolume("/home/jyxiong/Projects/peacock/asset/bunny.vdb");
+  loadHdrIbl("/home/jyxiong/Projects/peacock/asset/belfast_sunset_puresky_2k.hdr");
 
   setupCameraForBox(m_cameraManip, glm::vec3(m_volumeDesc.bboxMinDensityScale),
                     glm::vec3(m_volumeDesc.bboxMaxStepSize), 1.0f);
@@ -181,6 +191,12 @@ void Raytracer::onDetach() {
   m_allocator.destroyBuffer(m_bSceneInfo);
   m_allocator.destroyBuffer(m_bVolumeDesc);
   m_allocator.destroyBuffer(m_bVolumeGrid);
+
+  if (m_hdrImageView != VK_NULL_HANDLE) {
+    vkDestroyImageView(m_app->getDevice(), m_hdrImageView, nullptr);
+    m_hdrImageView = VK_NULL_HANDLE;
+  }
+  m_allocator.destroyImage(m_hdrImage);
 
   m_rtDescPack.deinit();
   m_gBuffers.deinit();
@@ -214,6 +230,46 @@ void Raytracer::onUIRender() {
     if (ImGui::CollapsingHeader("Camera")) {
       nvgui::CameraWidget(m_cameraManip);
     }
+
+    if (ImGui::CollapsingHeader("Path Tracer", ImGuiTreeNodeFlags_DefaultOpen)) {
+      bool changed = false;
+
+      // Samples per pixel
+      int spp = static_cast<int>(m_sceneInfo.sampleCount);
+      if (ImGui::SliderInt("Samples / pixel", &spp, 1, 64)) {
+        m_sceneInfo.sampleCount = static_cast<unsigned int>(spp);
+        changed = true;
+      }
+
+      // Density scale — scales raw voxel values; also updates sigmaMax
+      float ds = m_volumeDesc.bboxMinDensityScale.w;
+      if (ImGui::SliderFloat("Density scale", &ds, 0.001f, 2.0f, "%.4f")) {
+        m_volumeDesc.bboxMinDensityScale.w = ds;
+        const float sigmaMax = std::max(m_maxDensity * ds, 1e-6f);
+        m_volumeDesc.nanoGridInfo.z = std::bit_cast<uint32_t>(sigmaMax);
+        changed = true;
+      }
+
+      // HG anisotropy: negative = back-scattering, 0 = isotropic, positive = forward-scattering
+      if (ImGui::SliderFloat("HG anisotropy (g)", &m_hgG, -0.99f, 0.99f, "%.3f")) {
+        changed = true;
+      }
+
+      // Maximum scattering depth per path
+      if (ImGui::SliderInt("Max scatter depth", &m_sceneInfo.maxScatterDepth, 1, 32)) {
+        changed = true;
+      }
+
+      ImGui::LabelText("Frame index", "%u", m_sceneInfo.frameIndex);
+
+      if (ImGui::Button("Reset accumulation")) {
+        changed = true;
+      }
+
+      if (changed) {
+        m_sceneInfo.frameIndex = 0;
+      }
+    }
   }
   ImGui::End();
 }
@@ -242,6 +298,7 @@ void Raytracer::loadVolume(const std::filesystem::path& vdbPath) {
                              vdbPath.string());
   }
 
+  m_maxDensity = static_cast<float>(nanoGrid->tree().root().maximum());
   m_volumeDesc = makeVolumeDesc(*nanoGrid,
                                 static_cast<uint32_t>(m_gridHandle.gridSize()));
 
@@ -281,6 +338,66 @@ void Raytracer::loadVolume(const std::filesystem::path& vdbPath) {
   m_app->submitAndWaitTempCmdBuffer(cmd);
   m_stagingUploader.releaseStaging();
   m_volumeUploaded = true;
+}
+
+void Raytracer::loadHdrIbl(const std::filesystem::path &hdrPath) {
+  int width, height, channels;
+  auto* data = stbi_loadf(hdrPath.string().c_str(), &width, &height, &channels, 4);
+  if (!data) {
+    throw std::runtime_error("Failed to load HDR image: " + hdrPath.string());
+  }
+  auto imageByteSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4 * sizeof(float);
+
+  assert(m_stagingUploader.isAppendedEmpty());
+  VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+  {
+    if (m_hdrImageView != VK_NULL_HANDLE) {
+      vkDestroyImageView(m_app->getDevice(), m_hdrImageView, nullptr);
+      m_hdrImageView = VK_NULL_HANDLE;
+    }
+    m_allocator.destroyImage(m_hdrImage);
+
+    NVVK_CHECK(m_allocator.createImage(m_hdrImage, VkImageCreateInfo{
+                                              .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                                              .imageType = VK_IMAGE_TYPE_2D,
+                                              .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+                                              .extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1},
+                                              .mipLevels = 1,
+                                              .arrayLayers = 1,
+                                              .samples = VK_SAMPLE_COUNT_1_BIT,
+                                              .tiling = VK_IMAGE_TILING_OPTIMAL,
+                                              .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                                              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                                          },
+                                          VmaAllocationCreateInfo{
+                                              .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+                                          }));
+    NVVK_CHECK(m_stagingUploader.appendImage(m_hdrImage, imageByteSize, data,
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+    NVVK_DBG_NAME(m_hdrImage.image);
+  }
+
+  m_stagingUploader.cmdUploadAppended(cmd);
+  m_app->submitAndWaitTempCmdBuffer(cmd);
+  m_stagingUploader.releaseStaging();
+
+  // Create image view for shader sampling
+  const VkImageViewCreateInfo viewInfo{
+      .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .image    = m_hdrImage.image,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format   = VK_FORMAT_R32G32B32A32_SFLOAT,
+      .subresourceRange = {.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                           .baseMipLevel   = 0,
+                           .levelCount     = 1,
+                           .baseArrayLayer = 0,
+                           .layerCount     = 1},
+  };
+  NVVK_CHECK(vkCreateImageView(m_app->getDevice(), &viewInfo, nullptr, &m_hdrImageView));
+  NVVK_DBG_NAME(m_hdrImageView);
+
+  stbi_image_free(data);
 }
 
 void Raytracer::onRender(VkCommandBuffer cmd) {
@@ -327,6 +444,10 @@ void Raytracer::createRaytraceDescriptorLayout() {
                       .stageFlags = VK_SHADER_STAGE_ALL});
   bindings.addBinding({.binding = shaderio::BindingIndex::eVolumeDesc,
                       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                      .descriptorCount = 1,
+                      .stageFlags = VK_SHADER_STAGE_ALL});
+  bindings.addBinding({.binding = shaderio::BindingIndex::eHdrImage,
+                      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                       .descriptorCount = 1,
                       .stageFlags = VK_SHADER_STAGE_ALL});
   // Creating a PUSH descriptor set and set layout from the bindings
@@ -449,6 +570,16 @@ void Raytracer::updateSceneBuffer(VkCommandBuffer cmd) {
   m_sceneInfo.cameraPosition = m_cameraManip->getEye();
   m_sceneInfo.useSky = 0;
 
+  // Reset accumulation when the camera moves
+  if (m_sceneInfo.viewInvMatrix != m_prevViewMatrix) {
+    m_sceneInfo.frameIndex = 0;
+    m_prevViewMatrix = m_sceneInfo.viewInvMatrix;
+  }
+
+  m_sceneInfo.frameIndex++;
+  // Sync HG anisotropy (may change from UI) into VolumeDesc
+  m_volumeDesc.nanoGridInfo.w = std::bit_cast<uint32_t>(m_hgG);
+
   // Making sure the scene information buffer is updated before rendering
   // Wait that the fragment shader is done reading the previous scene
   // information and wait for the transfer to complete
@@ -458,6 +589,16 @@ void Raytracer::updateSceneBuffer(VkCommandBuffer cmd) {
   vkCmdUpdateBuffer(cmd, m_bSceneInfo.buffer, 0, sizeof(shaderio::SceneInfo),
                     &m_sceneInfo);
   nvvk::cmdBufferMemoryBarrier(cmd, {m_bSceneInfo.buffer,
+                                     VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                     VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR});
+
+  // Also keep VolumeDesc buffer in sync (densityScale / sigmaMax may change from UI)
+  nvvk::cmdBufferMemoryBarrier(cmd, {m_bVolumeDesc.buffer,
+                                     VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                                     VK_PIPELINE_STAGE_2_TRANSFER_BIT});
+  vkCmdUpdateBuffer(cmd, m_bVolumeDesc.buffer, 0, sizeof(shaderio::VolumeDesc),
+                    &m_volumeDesc);
+  nvvk::cmdBufferMemoryBarrier(cmd, {m_bVolumeDesc.buffer,
                                      VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                      VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR});
 }
@@ -478,6 +619,10 @@ void Raytracer::raytrace(const VkCommandBuffer &cmd) {
                m_bVolumeGrid.buffer, VK_IMAGE_LAYOUT_UNDEFINED);
   write.append(m_rtDescPack.makeWrite(shaderio::BindingIndex::eVolumeDesc),
                 m_bVolumeDesc.buffer, VK_IMAGE_LAYOUT_UNDEFINED);
+  write.append(m_rtDescPack.makeWrite(shaderio::BindingIndex::eHdrImage),
+               VkDescriptorImageInfo{.sampler     = m_linearSampler,
+                                     .imageView   = m_hdrImageView,
+                                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
   
   vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                             m_rtPipelineLayout, 0, write.size(), write.data());

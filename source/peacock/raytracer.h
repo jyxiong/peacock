@@ -38,6 +38,7 @@ public:
 private:
 
   void loadVolume(const std::filesystem::path &vdbPath);
+  void loadHdrIbl(const std::filesystem::path &hdrPath);
 
   void createResources();
 
@@ -66,6 +67,9 @@ private:
   shaderio::VolumeDesc m_volumeDesc;
   nanovdb::GridHandle<> m_gridHandle;
   bool m_volumeUploaded{false};
+  float m_maxDensity{1.0f};  // raw grid maximum, used to compute sigmaMax
+  float m_hgG{0.0f};         // Henyey-Greenstein anisotropy g
+  glm::mat4 m_prevViewMatrix{0.0f};  // for camera-change detection
 
   // camera info
   nvvk::Buffer m_bSceneInfo;
@@ -75,6 +79,11 @@ private:
 
   // volume grid data (NanoVDB)
   nvvk::Buffer m_bVolumeGrid;
+
+  // hdr
+  nvvk::Image   m_hdrImage;
+  VkImageView   m_hdrImageView{VK_NULL_HANDLE};
+  VkSampler     m_linearSampler{VK_NULL_HANDLE};
 
   // Ray Tracing Pipeline Components
   nvvk::DescriptorPack m_rtDescPack;

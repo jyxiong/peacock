@@ -15,6 +15,7 @@ target_link_libraries(${PROJECT_NAME}
 PUBLIC
     openvdb
     nanovdb
+    stb
     nvpro2::nvapp
     nvpro2::nvgui
     nvpro2::nvslang

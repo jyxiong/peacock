@@ -39,7 +39,7 @@ public struct NanovdbVolume: Volume {
     return { worldMin, worldMax };
   }
 
-  public float operator()(float3 pos) {
+  public func sample(float3 pos) -> float {
     pnanovdb_readaccessor_t acc = accessor();
 
     // Convert world position to floating-point index space
@@ -78,12 +78,11 @@ public struct NanovdbVolume: Volume {
     return lerp(c0, c1, t.z);
   }
 
-  public __subscript(uint3 ijk) -> float {
-  get {
-    pnanovdb_readaccessor_t acc;
+  public func load(uint3 ijk) -> float {
+    pnanovdb_readaccessor_t acc = accessor();
     pnanovdb_address_t address = pnanovdb_readaccessor_get_value_address(type(), m_gridBuffer, acc, int3(ijk));
     return pnanovdb_read_float(m_gridBuffer, address);
-  }}
+  }
 
   private func grid() -> pnanovdb_grid_handle_t {
     pnanovdb_grid_handle_t grid = {0};
@@ -103,7 +102,7 @@ public struct NanovdbVolume: Volume {
   }
 
   private func accessor() -> pnanovdb_readaccessor_t {
-    pnanovdb_readaccessor_t acc;
+    pnanovdb_readaccessor_t acc = {0};
     pnanovdb_readaccessor_init(acc, root());
     return acc;
   }

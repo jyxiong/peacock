@@ -14,8 +14,8 @@ public struct GridVolume: Volume {
 
   public func boundingBox() -> BoundingBox { return m_bbox; }
 
-  public float operator()(float3 pos) { return this[toIndex(pos)]; }
-  public __subscript(uint3 ijk) -> float {get {
+  public func sample(float3 pos) -> float { return load(toIndex(pos)); }
+  public func load(uint3 ijk) -> float {
     return 0.0; // TODO: sample from the actual volume data
-  }}
+  }
 }

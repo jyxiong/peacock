@@ -15,6 +15,6 @@ public interface Volume {
 
   public func boundingBox() -> BoundingBox;
 
-  public float operator()(float3 pos);
-  public __subscript(uint3 ijk) -> float;
+  public func sample(float3 pos) -> float;
+  public func load(uint3 ijk) -> float;
 }
