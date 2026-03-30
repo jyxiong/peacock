@@ -23,29 +23,23 @@ public struct SceneInfo {
 };
 
 public struct VolumeDesc {
+  // ── Coordinate transform ──────────────────────────────────────────────────
   public float4x4 worldToIndex;
-  public float4 bboxMinDensityScale;
-  public float4 bboxMaxStepSize;
-  public uint4 nanoGridInfo;
 
+  // ── Bounding box (world space) ────────────────────────────────────────────
+  public float3 bboxMin;    public float _pad0;
+  public float3 bboxMax;    public float stepSize;   // ray-march step hint
+
+  // ── Medium optical properties (scale factors applied to density) ──────────
+  public float3 sigma_a;    public float majorant;       // absorption scale + global extinction bound
+  public float3 sigma_s;    public float densityScale;   // scattering scale + raw→extinction factor
+  public float3 Le;         public float g;              // emission scale + HG asymmetry
+
+  public func boundingBox() -> BoundingBox { return { bboxMin, bboxMax }; }
   public func toIndex(float3 worldPos) -> float3 {
     return mul(float4(worldPos, 1.0), worldToIndex).xyz;
   }
-
   public func toIndexDirection(float3 worldDir) -> float3 {
     return mul(float4(worldDir, 0.0), worldToIndex).xyz;
   }
-
-  public func boundingBox() -> BoundingBox {
-    return { bboxMinDensityScale.xyz, bboxMaxStepSize.xyz };
-  }
-
-  public func densityScale() -> float { return bboxMinDensityScale.w; }
-  public func stepSize() -> float { return bboxMaxStepSize.w; }
-  public func gridByteSize() -> uint { return nanoGridInfo.x; }
-  public func gridWordCount() -> uint { return nanoGridInfo.y; }
-  // Maximum extinction (majorant) for delta tracking, stored as float bits in nanoGridInfo.z
-  public func sigmaMax() -> float { return asfloat(nanoGridInfo.z); }
-  // Henyey-Greenstein anisotropy g in [-1, 1], stored as float bits in nanoGridInfo.w
-  public func hgG() -> float { return asfloat(nanoGridInfo.w); }
 };

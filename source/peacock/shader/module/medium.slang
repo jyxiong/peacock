@@ -6,8 +6,7 @@ import random;
 import phase;
 
 __include medium.homogeneous;
-__include medium.grid;
-__include medium.nanovdb;
+__include medium.heterogeneous;
 
 // ── medium: shared return types ──────────────────────────────────────────────
 public namespace medium {

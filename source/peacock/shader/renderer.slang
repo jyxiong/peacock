@@ -23,6 +23,10 @@ func evalMISWeight(float pA, float pB) -> float
     return qA / max(qA + qB, 1e-8f);
 }
 
+// ── Type aliases for the active medium ───────────────────────────────────────
+typealias MedParam = HeterogeneousParam<NanovdbVolume>;
+typealias Med      = HeterogeneousMedium<NanovdbVolume>;
+
 // ── Next-Event Estimation via environment light, weighted with MIS ────────────
 // Samples a random direction from the envmap and weights against the phase PDF.
 // `wo` is the current path direction (ray.d pointing away from the origin).
@@ -30,7 +34,7 @@ func evalNEE(
     float3                  scatterPos,
     float3                  wo,
     HGParam                 hgParam,
-    NanovdbParam            medParam,
+    MedParam                medParam,
     BoundingBox             bbox,
     light::EnvironmentLight envLight,
     inout random::RandomSampler rng
@@ -53,7 +57,7 @@ func evalNEE(
         float t0 = max(shadowHit.value.x, 1e-4f);
         float t1 = shadowHit.value.y;
         if (t1 > t0)
-            Tr = sampler::eval_transmittance<NanovdbMedium>(shadowRay, t0, t1, medParam, rng);
+            Tr = sampler::eval_transmittance<Med>(shadowRay, t0, t1, medParam, rng);
     }
 
     float wMIS = evalMISWeight(pLight, pPhase);
@@ -64,7 +68,7 @@ func evalNEE(
 func traceVolumePath(
     uint2                   pixel,
     inout random::RandomSampler rng,
-    NanovdbParam            medParam,
+    MedParam                medParam,
     BoundingBox             bbox,
     int                     maxDepth,
     light::EnvironmentLight envLight,
@@ -99,7 +103,7 @@ func traceVolumePath(
 
         // Delta-tracking: sample the next scatter position.
         Optional<sampler::DistanceSample> ds =
-            sampler::sample_distance<NanovdbMedium>(ray, tNear, tFar, medParam, rng);
+            sampler::sample_distance<Med>(ray, tNear, tFar, medParam, rng);
 
         // ── No scatter: ray transmitted through the entire volume ─────────────
         if (!ds.hasValue)
@@ -153,11 +157,14 @@ void rgenMain()
     uint2 launchID   = DispatchRaysIndex().xy;
     uint2 launchSize = DispatchRaysDimensions().xy;
 
-    NanovdbParam            medParam = NanovdbParam(
+    MedParam medParam = MedParam(
         NanovdbVolume(volumeGrid),
-        volumeDesc.sigmaMax(),
-        volumeDesc.densityScale(),
-        volumeDesc.hgG()
+        volumeDesc.sigma_a,
+        volumeDesc.sigma_s,
+        volumeDesc.Le,
+        volumeDesc.majorant,
+        volumeDesc.densityScale,
+        volumeDesc.g
     );
     BoundingBox             bbox     = volumeDesc.boundingBox();
     int                     maxDepth = sceneInfo.maxScatterDepth;

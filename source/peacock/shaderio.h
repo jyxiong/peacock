@@ -28,16 +28,26 @@ struct SceneInfo {
 };
 
 struct VolumeDesc {
-  glm::mat4 worldToIndex{1.0f};
-  glm::vec4 bboxMinDensityScale{0.0f, 0.0f, 0.0f, 0.1f};
-  glm::vec4 bboxMaxStepSize{0.0f, 0.0f, 0.0f, 0.5f};
-  glm::uvec4 nanoGridInfo{0u, 0u, 0u, 0u};
+  // ── Coordinate transform ──────────────────────────────────────────────────
+  glm::mat4 worldToIndex{1.0f};              // world → index-space transform
+
+  // ── Bounding box (world space) ────────────────────────────────────────────
+  glm::vec3 bboxMin{0.0f};  float _pad0{0.0f};
+  glm::vec3 bboxMax{0.0f};  float stepSize{0.5f};  // ray-march step hint
+
+  // ── Medium optical properties (scale factors applied to density) ──────────
+  glm::vec3 sigma_a{0.0f};       float majorant{1.0f};       // absorption scale + global extinction bound
+  glm::vec3 sigma_s{1.0f};       float densityScale{0.1f};   // scattering scale + raw→extinction factor
+  glm::vec3 Le{0.0f};            float g{0.0f};              // emission scale + HG asymmetry
 };
 
 static_assert(std::is_standard_layout_v<SceneInfo>);
 static_assert(std::is_standard_layout_v<VolumeDesc>);
-static_assert(offsetof(VolumeDesc, bboxMinDensityScale) == sizeof(glm::mat4));
-static_assert(offsetof(VolumeDesc, bboxMaxStepSize) == sizeof(glm::mat4) + sizeof(glm::vec4));
-static_assert(offsetof(VolumeDesc, nanoGridInfo) == sizeof(glm::mat4) + sizeof(glm::vec4) * 2);
+static_assert(offsetof(VolumeDesc, bboxMin)  == 64);
+static_assert(offsetof(VolumeDesc, bboxMax)  == 80);
+static_assert(offsetof(VolumeDesc, sigma_a)  == 96);
+static_assert(offsetof(VolumeDesc, sigma_s)  == 112);
+static_assert(offsetof(VolumeDesc, Le)       == 128);
+static_assert(sizeof(VolumeDesc) == 144);
 
 NAMESPACE_SHADERIO_END()

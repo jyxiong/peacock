@@ -104,18 +104,18 @@ shaderio::VolumeDesc makeVolumeDesc(const nanovdb::NanoGrid<float>& grid,
   printf("[Volume] worldBBox min=(%.4f, %.4f, %.4f) max=(%.4f, %.4f, %.4f)\n",
          bbox.min()[0], bbox.min()[1], bbox.min()[2],
          bbox.max()[0], bbox.max()[1], bbox.max()[2]);
-  desc.bboxMinDensityScale =
-      glm::vec4(static_cast<float>(bbox.min()[0]),
-                static_cast<float>(bbox.min()[1]),
-                static_cast<float>(bbox.min()[2]), 0.1f);
-  desc.bboxMaxStepSize = glm::vec4(static_cast<float>(bbox.max()[0]),
-                                   static_cast<float>(bbox.max()[1]),
-                                   static_cast<float>(bbox.max()[2]), 0.5f);
-  // Majorant: max density value × densityScale, stored as float bits for the shader
+  desc.bboxMin = glm::vec3(bbox.min()[0], bbox.min()[1], bbox.min()[2]);
+  desc.bboxMax = glm::vec3(bbox.max()[0], bbox.max()[1], bbox.max()[2]);
+
+  desc.sigma_a      = glm::vec3(0.0f);        // pure-scattering smoke: no absorption
+  desc.sigma_s      = glm::vec3(1.0f);        // unit scattering scale
+  desc.Le           = glm::vec3(0.0f);        // non-emissive
+  desc.densityScale = 0.1f;
+  desc.g            = 0.0f;                   // isotropic
+  desc.stepSize     = 0.5f;
+
   const float maxDensity = static_cast<float>(grid.tree().root().maximum());
-  const float sigmaMax   = std::max(maxDensity * 0.1f, 1e-6f);  // 0.1f == densityScale default
-  desc.nanoGridInfo = glm::uvec4(gridByteSize, (gridByteSize + 3u) / 4u,
-                                 std::bit_cast<uint32_t>(sigmaMax), 0u);
+  desc.majorant = std::max(maxDensity * desc.densityScale, 1e-6f);
   return desc;
 }
 
@@ -170,11 +170,11 @@ void Raytracer::onAttach(nvapp::Application *app) {
   // Initialize SBT generator with queried ray tracing properties.
   m_sbtGenerator.init(m_app->getDevice(), m_rtProperties);
 
-  loadVolume("/home/jyxiong/Projects/peacock/asset/bunny.vdb");
+  loadVolume("/home/jyxiong/Projects/peacock/asset/bunny_cloud.vdb");
   loadHdrIbl("/home/jyxiong/Projects/peacock/asset/belfast_sunset_puresky_2k.hdr");
 
-  setupCameraForBox(m_cameraManip, glm::vec3(m_volumeDesc.bboxMinDensityScale),
-                    glm::vec3(m_volumeDesc.bboxMaxStepSize), 1.0f);
+  setupCameraForBox(m_cameraManip, m_volumeDesc.bboxMin,
+                    m_volumeDesc.bboxMax, 1.0f);
 
   createResources();
   createRaytraceDescriptorLayout();
@@ -210,8 +210,8 @@ void Raytracer::onResize(VkCommandBuffer cmd, const VkExtent2D &size) {
   NVVK_CHECK(m_gBuffers.update(cmd, size));
   if (size.height > 0) {
     const float aspect = static_cast<float>(size.width) / static_cast<float>(size.height);
-    setupCameraForBox(m_cameraManip, glm::vec3(m_volumeDesc.bboxMinDensityScale),
-                      glm::vec3(m_volumeDesc.bboxMaxStepSize), aspect);
+    setupCameraForBox(m_cameraManip, m_volumeDesc.bboxMin,
+                      m_volumeDesc.bboxMax, aspect);
   }
 }
 
@@ -241,20 +241,6 @@ void Raytracer::onUIRender() {
         changed = true;
       }
 
-      // Density scale — scales raw voxel values; also updates sigmaMax
-      float ds = m_volumeDesc.bboxMinDensityScale.w;
-      if (ImGui::SliderFloat("Density scale", &ds, 0.001f, 2.0f, "%.4f")) {
-        m_volumeDesc.bboxMinDensityScale.w = ds;
-        const float sigmaMax = std::max(m_maxDensity * ds, 1e-6f);
-        m_volumeDesc.nanoGridInfo.z = std::bit_cast<uint32_t>(sigmaMax);
-        changed = true;
-      }
-
-      // HG anisotropy: negative = back-scattering, 0 = isotropic, positive = forward-scattering
-      if (ImGui::SliderFloat("HG anisotropy (g)", &m_hgG, -0.99f, 0.99f, "%.3f")) {
-        changed = true;
-      }
-
       // Maximum scattering depth per path
       if (ImGui::SliderInt("Max scatter depth", &m_sceneInfo.maxScatterDepth, 1, 32)) {
         changed = true;
@@ -269,6 +255,33 @@ void Raytracer::onUIRender() {
       if (changed) {
         m_sceneInfo.frameIndex = 0;
       }
+    }
+  }
+  ImGui::End();
+
+  if (ImGui::Begin("Medium")) {
+    bool changed = false;
+
+    // Density scale — scales raw voxel values; also updates majorant
+    float ds = m_volumeDesc.densityScale;
+    if (ImGui::SliderFloat("Density scale", &ds, 0.001f, 2.0f, "%.4f")) {
+      m_volumeDesc.densityScale = ds;
+      m_volumeDesc.majorant = std::max(m_maxDensity * ds, 1e-6f);
+      changed = true;
+    }
+
+    // Absorption / scattering spectrum scale
+    if (ImGui::ColorEdit3("sigma_a", &m_volumeDesc.sigma_a.x)) { changed = true; }
+    if (ImGui::ColorEdit3("sigma_s", &m_volumeDesc.sigma_s.x)) { changed = true; }
+    if (ImGui::ColorEdit3("Le",      &m_volumeDesc.Le.x))      { changed = true; }
+
+    // HG anisotropy: negative = back-scattering, 0 = isotropic, positive = forward-scattering
+    if (ImGui::SliderFloat("HG anisotropy (g)", &m_hgG, -0.99f, 0.99f, "%.3f")) {
+      changed = true;
+    }
+
+    if (changed) {
+      m_sceneInfo.frameIndex = 0;
     }
   }
   ImGui::End();
@@ -578,7 +591,7 @@ void Raytracer::updateSceneBuffer(VkCommandBuffer cmd) {
 
   m_sceneInfo.frameIndex++;
   // Sync HG anisotropy (may change from UI) into VolumeDesc
-  m_volumeDesc.nanoGridInfo.w = std::bit_cast<uint32_t>(m_hgG);
+  m_volumeDesc.g = m_hgG;
 
   // Making sure the scene information buffer is updated before rendering
   // Wait that the fragment shader is done reading the previous scene
