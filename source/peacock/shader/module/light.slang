@@ -1,14 +1,17 @@
 module light;
 
+__include light.directional;
 __include light.environment;
+__include light.area;
 
 import math;
+import shape;
 
 namespace light {
 
 // ── Return types ──────────────────────────────────────────────────────────────
 public struct Interaction {
-    public float4 L;    // radiance
+    public float3 L;    // radiance
     public float3 wi;   // direction toward the light (world space)
     public float3 p;    // query position
     public float  t;    // parametric distance (FLT_MAX for infinite lights)
@@ -23,6 +26,9 @@ public interface Light {
 
     // Draw a direction sample and return the full Interaction record.
     func sample(float3 p, float2 u) -> Interaction;
+
+    // 
+    func pdf(float3 p, float3 wi) -> float;
 };
 
 } // namespace light

@@ -19,7 +19,7 @@ public struct HomogeneousParam : IMediumParameter {
 };
 
 public struct HomogeneousMedium : IMedium {
-    typedef HomogeneousParam TParam;
+    typealias TParam = HomogeneousParam;
 
     // Constant properties everywhere — no spatial lookup needed.
     static func sample_point(float3 p, TParam param) -> medium::MediumProperties {

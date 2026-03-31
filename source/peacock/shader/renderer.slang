@@ -90,12 +90,21 @@ func traceVolumePath(
         // ── Miss: ray bypasses or exits the volume ────────────────────────────
         if (!boxHit.hasValue)
         {
-            float3 Le = envLight.eval(ray.d);
-            // Apply MIS weight if we arrived here via a phase sample (not first bounce).
-            if (prevPhasePdf > 0.0f)
-                Le *= evalMISWeight(prevPhasePdf, M_INV_4PI);
-            L += thp * Le;
-            break;
+            if (depth == 0)
+            {
+                // Primary ray miss: directly evaluate environment radiance.
+                L += envLight.eval(ray.d);
+                break;
+            }
+            else
+            {
+                // Secondary ray miss: evaluate environment radiance with MIS weight.
+                float3 Le = envLight.eval(ray.d);
+                if (prevPhasePdf > 0.0f)
+                    Le *= evalMISWeight(prevPhasePdf, M_INV_4PI);
+                L += thp * Le;
+                break;
+            }
         }
 
         float tNear = max(boxHit.value.x, 0.0f);

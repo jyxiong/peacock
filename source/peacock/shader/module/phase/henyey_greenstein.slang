@@ -9,7 +9,7 @@ public struct HGParam : IPhaseParameter {
 
 // ── Henyey-Greenstein phase function ─────────────────────────────────────────
 public struct HGPhaseFunction : IPhaseFunction {
-    typedef HGParam TParam;
+    typealias TParam = HGParam;
 
     // Analytic HG value for a given cosine angle between wo and wi.
     static func hg_value(float cosTheta, float g) -> float {

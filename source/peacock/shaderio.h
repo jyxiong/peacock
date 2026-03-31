@@ -21,9 +21,9 @@ struct SceneInfo {
   glm::mat4 viewInvMatrix;  // Inverse view matrix for the scene
   glm::vec3 cameraPosition; // w is unused, padding for layout match with shader
   int useSky{0};            // Whether to use sky color when ray misses the volume
-  unsigned int sampleCount{4};       // Number of samples per pixel
+  unsigned int sampleCount{1};       // Number of samples per pixel
   unsigned int frameIndex{0};        // Current frame index (for RNG seed)
-  int maxScatterDepth{8};            // Maximum number of scattering events per path
+  int maxScatterDepth{3};            // Maximum number of scattering events per path
   int pad{0};
 };
 

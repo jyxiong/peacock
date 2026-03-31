@@ -31,7 +31,7 @@ public struct EnvironmentLight : Light {
         float3 wi       = float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
 
         float2 uv = dir_to_uv(wi);
-        float4 L  = m_texture.SampleLevel(uv, 0);
+        float3 L  = m_texture.SampleLevel(uv, 0).xyz;
 
         Interaction it;
         it.L   = L;
@@ -40,6 +40,11 @@ public struct EnvironmentLight : Light {
         it.t   = 1.0e30f;
         it.pdf = M_INV_4PI;   // uniform sphere PDF
         return it;
+    }
+
+    public func pdf(float3 p, float3 wi) -> float {
+        // PDF is uniform over the sphere, so it's just 1 / (4 * PI).
+        return M_INV_4PI;
     }
 };
 

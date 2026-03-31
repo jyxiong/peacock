@@ -37,7 +37,7 @@ public struct HeterogeneousParam<V : Volume> : IMediumParameter {
 };
 
 public struct HeterogeneousMedium<V : Volume> : IMedium {
-    typedef HeterogeneousParam<V> TParam;
+    typealias TParam = HeterogeneousParam<V>;
 
     // Evaluate sigma_a, sigma_s at world point p by querying the volume.
     static func sample_point(float3 p, TParam param) -> medium::MediumProperties {
