@@ -24,7 +24,7 @@ public struct EnvironmentLight : Light {
     }
 
     // Uniform-sphere directional sample (crude; no importance sampling).
-    public func sample(float3 p, float2 u) -> Interaction {
+    public func sample(float3 p, float2 u) -> Sample {
         float cosTheta  = 1.0f - 2.0f * u.y;
         float sinTheta  = safe_sqrt(1.0f - cosTheta * cosTheta);
         float phi       = M_2PI * u.x;
@@ -33,13 +33,13 @@ public struct EnvironmentLight : Light {
         float2 uv = dir_to_uv(wi);
         float3 L  = m_texture.SampleLevel(uv, 0).xyz;
 
-        Interaction it;
-        it.L   = L;
-        it.wi  = wi;
-        it.p   = p;
-        it.t   = 1.0e30f;
-        it.pdf = M_INV_4PI;   // uniform sphere PDF
-        return it;
+        Sample ls;
+        ls.L   = L;
+        ls.wi  = wi;
+        ls.p   = p;
+        ls.t   = 1.0e30f;
+        ls.pdf = M_INV_4PI;   // uniform sphere PDF
+        return ls;
     }
 
     public func pdf(float3 p, float3 wi) -> float {

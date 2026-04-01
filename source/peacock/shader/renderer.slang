@@ -41,7 +41,7 @@ func evalNEE(
 ) -> float3
 {
     // Sample the environment (uniform sphere, pdf = 1/4π).
-    light::Interaction ls = envLight.sample(scatterPos, rng.next_float2());
+    light::Sample ls = envLight.sample(scatterPos, rng.next_float2());
     float pLight = ls.pdf;
 
     // Phase value and PDF for the sampled light direction.
@@ -71,6 +71,7 @@ func traceVolumePath(
     MedParam                medParam,
     BoundingBox             bbox,
     int                     maxDepth,
+    int                     rrDepth,
     light::EnvironmentLight envLight,
     Film                    film,
     Camera                  cam
@@ -136,7 +137,7 @@ func traceVolumePath(
         prevPhasePdf  = scatter.pdf;
 
         // ── Russian Roulette early termination (after depth 2) ────────────────
-        if (depth >= 2)
+        if (depth >= rrDepth)
         {
             float q = saturate(max(thp.r, max(thp.g, thp.b)));
             if (rng.next_float() > q) break;
@@ -177,6 +178,7 @@ void rgenMain()
     );
     BoundingBox             bbox     = volumeDesc.boundingBox();
     int                     maxDepth = sceneInfo.maxScatterDepth;
+    int                     rrDepth  = sceneInfo.russianRouletteDepth;
     uint                    sppCount = sceneInfo.sampleCount;
     light::EnvironmentLight envLight = { hdrImage };
     Film                    film     = { launchSize };
@@ -188,7 +190,7 @@ void rgenMain()
     {
         random::RandomSampler rng = random::init_random_sampler(launchID,
                                                                  sceneInfo.frameIndex, s);
-        accumColor += traceVolumePath(launchID, rng, medParam, bbox, maxDepth,
+        accumColor += traceVolumePath(launchID, rng, medParam, bbox, maxDepth, rrDepth,
                                       envLight, film, cam);
     }
 

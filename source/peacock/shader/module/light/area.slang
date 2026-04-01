@@ -16,15 +16,15 @@ public struct AreaLight<TShape : IShape> : Light {
         return radiance;
     }
 
-    func sample(float3 p, float2 u) -> Interaction {
+    func sample(float3 p, float2 u) -> Sample {
         shape::Sample s = TShape::sample(p, u, shapeParam);
-        Interaction it;
-        it.L   = radiance;
-        it.wi  = normalize(s.position - p);
-        it.p   = p;
-        it.t   = length(s.position - p);
-        it.pdf = s.pdf;
-        return it;
+        Sample ls;
+        ls.L   = radiance;
+        ls.wi  = normalize(s.position - p);
+        ls.p   = p;
+        ls.t   = length(s.position - p);
+        ls.pdf = s.pdf;
+        return ls;
     }
 
     func pdf(float3 p, float3 wi) -> float {

@@ -21,10 +21,6 @@ public struct HitResult {
     public float3 normal;
 };
 
-public struct Interaction {
-    public float pdf;
-};
-
 }
 
 public interface IShapeParameter {};

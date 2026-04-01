@@ -14,14 +14,14 @@ public struct DirectionalLight : Light {
         return radiance;
     }
 
-    func sample(float3 p, float2 u) -> Interaction {
-        Interaction it;
-        it.L   = radiance;
-        it.wi  = direction;  // already points toward the light
-        it.p   = p;
-        it.t   = 1.0e30f;   // effectively infinite distance
-        it.pdf = 1.0f;      // delta distribution (all probability mass at one direction)
-        return it;
+    func sample(float3 p, float2 u) -> Sample {
+        Sample ls;
+        ls.L   = radiance;
+        ls.wi  = direction;  // already points toward the light
+        ls.p   = p;
+        ls.t   = 1.0e30f;   // effectively infinite distance
+        ls.pdf = 1.0f;      // delta distribution (all probability mass at one direction)
+        return ls;
     }
 
     func pdf(float3 p, float3 wi) -> float {

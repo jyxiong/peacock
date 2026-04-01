@@ -20,10 +20,10 @@ struct SceneInfo {
   glm::mat4 projInvMatrix;  // Inverse projection matrix for the scene
   glm::mat4 viewInvMatrix;  // Inverse view matrix for the scene
   glm::vec3 cameraPosition; // w is unused, padding for layout match with shader
-  int useSky{0};            // Whether to use sky color when ray misses the volume
   unsigned int sampleCount{1};       // Number of samples per pixel
   unsigned int frameIndex{0};        // Current frame index (for RNG seed)
   int maxScatterDepth{3};            // Maximum number of scattering events per path
+  int russianRouletteDepth{3};        // Depth to start Russian Roulette path termination
   int pad{0};
 };
 
@@ -37,7 +37,7 @@ struct VolumeDesc {
 
   // ── Medium optical properties (scale factors applied to density) ──────────
   glm::vec3 sigma_a{0.0f};       float majorant{1.0f};       // absorption scale + global extinction bound
-  glm::vec3 sigma_s{1.0f};       float densityScale{0.1f};   // scattering scale + raw→extinction factor
+  glm::vec3 sigma_s{1.0f};       float densityScale{1.0f};   // scattering scale + raw→extinction factor
   glm::vec3 Le{0.0f};            float g{0.0f};              // emission scale + HG asymmetry
 };
 

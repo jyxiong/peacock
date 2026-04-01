@@ -15,10 +15,10 @@ public struct SceneInfo {
   public float4x4 projInvMatrix;
   public float4x4 viewInvMatrix;
   public float3   cameraPosition;
-  public int     useSky;
   public uint     sampleCount;
   public uint     frameIndex;
   public int      maxScatterDepth;
+  public int      russianRouletteDepth;
   public int      pad;
 };
 
